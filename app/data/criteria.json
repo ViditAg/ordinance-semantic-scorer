@@ -1,0 +1,58 @@
+{
+  "criteria": [
+    {
+      "title": "Clear Purpose",
+      "short": "Does the ordinance clearly state its purpose?",
+      "description": "The ordinance should begin with a clear purpose section describing the problem it addresses and the objectives sought.",
+      "weight": 1.5
+    },
+    {
+      "title": "Definitions",
+      "short": "Are key terms defined?",
+      "description": "Key terms used throughout the ordinance should be defined in a definitions section to reduce ambiguity.",
+      "weight": 1.2
+    },
+    {
+      "title": "Scope & Applicability",
+      "short": "Who and what is covered?",
+      "description": "The ordinance should clearly state the scope, including geographic applicability, covered activities, and any exceptions or exemptions.",
+      "weight": 1.3
+    },
+    {
+      "title": "Enforcement & Penalties",
+      "short": "Are enforcement mechanisms and penalties specified?",
+      "description": "There should be clear enforcement provisions, including responsible agencies, procedures, fines, penalties, or remedies for non-compliance.",
+      "weight": 1.4
+    },
+    {
+      "title": "Compliance Timeline / Effective Date",
+      "short": "When does it take effect and are there compliance timelines?",
+      "description": "The ordinance should have an effective date and any deadlines or grace periods for compliance.",
+      "weight": 1.0
+    },
+    {
+      "title": "Public Notice & Participation",
+      "short": "Does it reference public hearings or notice?",
+      "description": "Consider whether the ordinance describes requirements for public notice, hearings, or opportunities for public participation.",
+      "weight": 0.9
+    },
+    {
+      "title": "Fiscal Impact",
+      "short": "Is cost or fiscal impact described?",
+      "description": "A high-quality ordinance will consider and, if appropriate, describe fiscal impacts, funding sources, or budgeting implications.",
+      "weight": 0.8
+    },
+    {
+      "title": "Reporting & Recordkeeping",
+      "short": "Are reporting requirements included?",
+      "description": "The ordinance may require reporting, recordkeeping, or monitoring; these requirements should be explicit when applicable.",
+      "weight": 0.8
+    },
+    {
+      "title": "Severability & Conflicts",
+      "short": "Severability and conflict clauses present?",
+      "description": "There should be a severability clause and direction on how conflicts with other laws are handled.",
+      "weight": 0.7
+    }
+  ]
+}
