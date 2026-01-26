@@ -1,44 +1,39 @@
-from typing import List, Optional
+from __future__ import annotations
+
+from functools import lru_cache
+from typing import List
+
 import numpy as np
 
+@lru_cache(maxsize=4)
+def _get_sentence_transformer(model_name: str):
+    from sentence_transformers import SentenceTransformer
+
+    return SentenceTransformer(model_name)
+
+
 class EmbeddingProvider:
-    """
-    Provides embeddings using either a local Sentence-Transformers model
-    or the OpenAI embeddings API.
+    """Local-only embeddings using Sentence-Transformers.
 
     Usage:
-        provider = EmbeddingProvider(backend="local", model_name="all-MiniLM-L6-v2")
+        provider = EmbeddingProvider(model_name="all-MiniLM-L6-v2")
         embs = provider.embed_texts(["hello", "world"])
     """
-    def __init__(self, backend: str = "local", model_name: str = "all-MiniLM-L6-v2", openai_api_key: Optional[str] = None):
-        self.backend = backend
-        if backend == "local":
-            from sentence_transformers import SentenceTransformer
-            self.model = SentenceTransformer(model_name)
-        elif backend == "openai":
-            import openai
-            if openai_api_key:
-                openai.api_key = openai_api_key
-            self.openai = openai
-            # choose a reasonable embedding model available at time of writing
-            self.openai_model = "text-embedding-3-small"
-        else:
-            raise ValueError("backend must be 'local' or 'openai'")
+
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+        self.model_name = model_name
+        self.model = _get_sentence_transformer(model_name)
 
     def embed_texts(self, texts: List[str]) -> List[List[float]]:
-        if self.backend == "local":
-            embs = self.model.encode(texts, show_progress_bar=False, convert_to_numpy=True)
-            return [e.tolist() for e in embs]
-        else:
-            # OpenAI batching (simple)
-            results = []
-            BATCH = 16
-            for i in range(0, len(texts), BATCH):
-                batch = texts[i:i+BATCH]
-                resp = self.openai.Embedding.create(model=self.openai_model, input=batch)
-                for r in resp["data"]:
-                    results.append(r["embedding"])
-            return results
+        if not texts:
+            return []
+        embs = self.model.encode(
+            texts,
+            show_progress_bar=False,
+            convert_to_numpy=True,
+            normalize_embeddings=True,
+        )
+        return [e.tolist() for e in embs]
 
 def cosine_similarity(a: List[float], b: List[float]) -> float:
     a = np.array(a, dtype=float)

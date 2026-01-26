@@ -1,58 +1,178 @@
 {
   "criteria": [
     {
-      "title": "Clear Purpose",
-      "short": "Does the ordinance clearly state its purpose?",
-      "description": "The ordinance should begin with a clear purpose section describing the problem it addresses and the objectives sought.",
+      "title": "Purpose Statement",
+      "short": "Does the ordinance clearly state its purpose to protect dark skies?",
+      "description": "The ordinance should clearly state its purpose to protect dark night skies, preserve opportunities for viewing stars and astronomical features, promote human health by limiting negative impacts from light at night, provide safely and responsibly lit areas, protect ecological wellness and wildlife, reduce energy consumption and emissions, and increase opportunities for dark sky tourism.",
       "weight": 1.5
     },
     {
-      "title": "Definitions",
-      "short": "Are key terms defined?",
-      "description": "Key terms used throughout the ordinance should be defined in a definitions section to reduce ambiguity.",
-      "weight": 1.2
-    },
-    {
-      "title": "Scope & Applicability",
-      "short": "Who and what is covered?",
-      "description": "The ordinance should clearly state the scope, including geographic applicability, covered activities, and any exceptions or exemptions.",
+      "title": "Applicability and Scope",
+      "short": "Does it clearly define what outdoor lighting is covered?",
+      "description": "The ordinance should clearly state that it applies to outdoor artificial illuminating devices, outdoor fixtures, lamps and other similar devices, permanently installed or portable, used for flood lighting, general illumination or advertisement.",
       "weight": 1.3
     },
     {
-      "title": "Enforcement & Penalties",
-      "short": "Are enforcement mechanisms and penalties specified?",
-      "description": "There should be clear enforcement provisions, including responsible agencies, procedures, fines, penalties, or remedies for non-compliance.",
+      "title": "Shielding Requirements",
+      "short": "Are lights required to be downcast and fully shielded?",
+      "description": "All outdoor lighting fixtures should be required to be downcast and fully shielded. Full cutoff fixtures designed and installed to prevent light trespass and glare should be specified. Full shielding should be required for Class 1 and Class 2 lights.",
+      "weight": 1.8
+    },
+    {
+      "title": "Light Trespass Standard",
+      "short": "Is light trespass clearly defined and prohibited?",
+      "description": "The ordinance should define light trespass as when a person can see direct illumination from an off-site fixture. In other words, the light emitting part of the luminaire can be seen from off site; for example, the bulb or part of the bulb is visible from off site. Direct light emissions should be down onto the site and not shine direct illumination or glare onto adjacent properties.",
+      "weight": 1.7
+    },
+    {
+      "title": "Color Temperature (CCT) Requirements",
+      "short": "Are color temperature limits specified for different lighting types?",
+      "description": "The ordinance should specify color temperature requirements: Amber/Yellow lights (1800K to 2200K) in most places; White lights (2700K to 3000K) where color rendering is critical, for example, gas station canopies, car lots, display environments. Amber/Yellow lights do not have the harmful blue wavelengths of light and can be left on all night as security lights with minimal harm. Higher Kelvin values adversely affect circadian rhythm, glare, skyglow, nighttime pollinators and insect decline.",
+      "weight": 1.6
+    },
+    {
+      "title": "Uplighting Prohibition",
+      "short": "Is uplighting prohibited?",
+      "description": "Uplighting should be prohibited. Architectural and landscape lighting that is directed upward onto a structure, tree, or other landscape feature should not be allowed.",
+      "weight": 1.5
+    },
+    {
+      "title": "Commercial Extinguish Times",
+      "short": "Are commercial lights required to be turned off after business hours?",
+      "description": "Commercial outdoor lights should be turned off by 11 PM or within 30 minutes of close of business, whichever is later, and remain off until 1 hour before sunrise. Exception: shielded amber lights for security may remain on. Internal lights visible through windows should be dimmed 50%.",
       "weight": 1.4
     },
     {
-      "title": "Compliance Timeline / Effective Date",
-      "short": "When does it take effect and are there compliance timelines?",
-      "description": "The ordinance should have an effective date and any deadlines or grace periods for compliance.",
+      "title": "Residential Extinguish Times",
+      "short": "Are residential lights required to be turned off at night?",
+      "description": "Residential string lights and other outdoor lights should be turned off by 11 PM, except shielded amber lights which may remain on for security. Amber lights provide for security without much negative environmental impact and have a CCT rating in the 1800K range.",
+      "weight": 1.3
+    },
+    {
+      "title": "Motion Sensors and Smart Lighting",
+      "short": "Are motion sensors and smart lighting controls required?",
+      "description": "If motion sensors are employed, lights must be shielded, cause no trespass, and turn off within 5 minutes. The ordinance should encourage smart lighting, for example, dimming of security lights after midnight. Lighting should only occur when it is needed, and controls such as timers or motion detectors should be employed.",
+      "weight": 1.2
+    },
+    {
+      "title": "Lumen Output Limits - Non-Residential",
+      "short": "Are lumen output limits specified for non-residential properties?",
+      "description": "Mixed Use and Non-Residential properties should have limits: 25,000 lumens for the first net acre, plus 2,000 lumens for each additional acre. Maximum 1,500 lumens per fixture.",
+      "weight": 1.4
+    },
+    {
+      "title": "Lumen Output Limits - Residential",
+      "short": "Are lumen output limits specified for residential properties?",
+      "description": "Single family residential: 4,000 lumens total, 6,000 total if accessory dwelling; maximum 850 lumens per fixture. Multi-Family Residential: 20,000 lumens per acre; maximum 850 lumens per fixture. Duplex, Triplex: 6,000 lumens total; maximum 850 lumens per fixture.",
+      "weight": 1.3
+    },
+    {
+      "title": "Lighting Classifications",
+      "short": "Are lighting classes defined (Class 1, 2, 3)?",
+      "description": "The ordinance should define lighting classes: Class 1 for service station canopies, customer entrance/exits, outdoor eating areas where color rendition is needed - allows 2700K or less. Class 2 for general illumination for safety or security including parking lots, equipment yards, walkways, roadways - requires Narrow Spectrum Amber LEDs. Class 3 for decorative lighting including architectural and vegetation.",
+      "weight": 1.5
+    },
+    {
+      "title": "Public Street Lights",
+      "short": "Are street lights required to meet BUG standards?",
+      "description": "For new or replaced street lights, the ordinance should require Backlight, Uplight, Glare (BUG) standards. Modern design and shielding on LED street lights prevents uplight, allows minimal backlight onto areas not intended for lighting and minimizes glare. Recommend BUG rating of B0, U0, G0 for new streetlights and replacements.",
+      "weight": 1.4
+    },
+    {
+      "title": "Greenhouse Lighting",
+      "short": "Are greenhouses required to have blackout screens?",
+      "description": "Greenhouses should be required to have blackout screens on roof and walls. Greenhouse walls and ceiling must be shielded with blackout curtains to minimize light leakage. Curtains should be closed from 1 hour before sunset to 1 hour after sunrise.",
+      "weight": 1.2
+    },
+    {
+      "title": "Security Lights",
+      "short": "Are security lights required to be amber and shielded?",
+      "description": "Security lights should use amber lamps, be downcast, shielded, and not cause trespass. Security lighting should be in accordance with IES Guide 1. Amber lights provide for security without much negative environmental impact.",
+      "weight": 1.3
+    },
+    {
+      "title": "Internally Lighted Signs",
+      "short": "Are internally lighted signs regulated?",
+      "description": "Internally lighted signs should have maximum luminance of 100 nits, be turned off 1 hour after sunset or at close of business (whichever is later), and remain off until 1 hour before sunrise. Area of sign cannot exceed 200 sq ft. Lighting must be downcast from top down. Alternatively, off by 11 PM or within one hour of close of business.",
+      "weight": 1.1
+    },
+    {
+      "title": "Digital Billboard Signs",
+      "short": "Are digital billboard signs required to turn off at night?",
+      "description": "Digital billboard signs should be turned off by 11 PM or within 30 minutes of close of business.",
+      "weight": 1.1
+    },
+    {
+      "title": "Externally Lighted Signs",
+      "short": "Are externally lighted signs required to be top-mounted?",
+      "description": "New and replaced signage should only be lighted from the top down. Externally lighted signs should have maximum luminance of 100 nits, be turned off 1 hour after sunset or at close of business, area cannot exceed 200 sq ft, and lighting must be downcast from top down.",
+      "weight": 1.1
+    },
+    {
+      "title": "Decorative and Architectural Lighting",
+      "short": "Is decorative and architectural lighting regulated?",
+      "description": "Architectural and landscape lighting must be downcast and shielded, and not cause light trespass. Low lumen lights mounted at grade and no more than 3 ft above grade for landscape delineation are allowed, but not for area lighting.",
+      "weight": 1.2
+    },
+    {
+      "title": "String Lights",
+      "short": "Are string lights regulated?",
+      "description": "String lights should not be permitted to solely illuminate or decorate landscaping features. No flashing or flickering lights. Maximum output per light is 50 lumens, max CCT 3000K. Exempt from downcast and shielding requirements but subject to nuisance complaints. Turned off by end of business hours; off by 11 pm in residential areas. Amber-colored string lights are recommended.",
       "weight": 1.0
     },
     {
-      "title": "Public Notice & Participation",
-      "short": "Does it reference public hearings or notice?",
-      "description": "Consider whether the ordinance describes requirements for public notice, hearings, or opportunities for public participation.",
+      "title": "Parking Lot Lighting",
+      "short": "Are parking lots required to have shielded amber lights?",
+      "description": "Parking lot lighting shall be downcast, fully shielded and meet IES Standard RP-20-1. Should not exceed 0.1 foot-candle at the property line. Off by 11 PM or within one hour of close of businesses. Employ amber colored lights on all night for security with motion sensing cameras. Must be shielded and not cause light trespass.",
+      "weight": 1.4
+    },
+    {
+      "title": "Holiday Decorative Lighting",
+      "short": "Are holiday lights limited to specific dates?",
+      "description": "Holiday decorative lighting should only be allowed during December 1 to January 15th. Specific dates simplify enforcement issues.",
       "weight": 0.9
     },
     {
-      "title": "Fiscal Impact",
-      "short": "Is cost or fiscal impact described?",
-      "description": "A high-quality ordinance will consider and, if appropriate, describe fiscal impacts, funding sources, or budgeting implications.",
-      "weight": 0.8
+      "title": "Sports and Recreational Lighting",
+      "short": "Are sports field lights required to turn off and meet Dark Sky guidelines?",
+      "description": "Sports and recreational lighting should be turned off by 11 PM or within 60 minutes of close of play. New or updating facilities should adhere to Dark Sky International Sport Lighting Guidelines. Requirements include: 85% of lumens confined to playing field area, maximum 8% uplight for aerial sports, compliance with ANSI/IES standards, maximum CCT of 5700K, and maximum luminous intensity limits.",
+      "weight": 1.3
     },
     {
-      "title": "Reporting & Recordkeeping",
-      "short": "Are reporting requirements included?",
-      "description": "The ordinance may require reporting, recordkeeping, or monitoring; these requirements should be explicit when applicable.",
-      "weight": 0.8
+      "title": "Outdoor Display Lots",
+      "short": "Are outdoor display lots (e.g., car dealerships) regulated?",
+      "description": "Outdoor display lots should have lights turned off by 11 PM or within 30 minutes of close of business. Employ amber colored lights on all night for security with motion sensing cameras. Must be shielded and not cause light trespass.",
+      "weight": 1.2
     },
     {
-      "title": "Severability & Conflicts",
-      "short": "Severability and conflict clauses present?",
-      "description": "There should be a severability clause and direction on how conflicts with other laws are handled.",
-      "weight": 0.7
+      "title": "Lighting Plans and Approvals",
+      "short": "Are lighting plans required for new construction?",
+      "description": "Site plan review and/or building permits must include lighting plans showing location, type, height, color temperature, lumen output and amount of all proposed and existing light fixtures, along with light fixture cut sheets from the manufacturer. The applicant must provide enough information to verify that proposed lighting conforms to Dark Skies Standards. Lighting plans should be evaluated before approval.",
+      "weight": 1.4
+    },
+    {
+      "title": "Inspection Requirements",
+      "short": "Are inspections required during or after construction?",
+      "description": "The ordinance should require inspection of outdoor lights versus the site plan along with final inspection of new construction. This ensures compliance with approved lighting plans.",
+      "weight": 1.2
+    },
+    {
+      "title": "Enforcement and Penalties",
+      "short": "Are enforcement mechanisms and penalties specified?",
+      "description": "The ordinance should specify enforcement mechanisms. Violations may be subject to civil infractions, with each day a separate violation. Enforcement may be done on complaint basis initially, with educational outreach to encourage voluntary improvements. Consider evaluating voluntary compliance after 2 years before implementing more active enforcement.",
+      "weight": 1.3
+    },
+    {
+      "title": "Compliance Timeline and Grandfathering",
+      "short": "Are compliance timelines and grandfathering provisions specified?",
+      "description": "The ordinance should specify effective dates and compliance timelines. Old fixtures may be grandfathered in if installed before the effective date, but fixtures not in compliance should be given a timeline (e.g., three years) to come into compliance. Public-owned fixtures may be given 5 years to come into compliance. Non-compliant fixtures installed after a certain date should not be grandfathered.",
+      "weight": 1.1
+    },
+    {
+      "title": "Exemptions",
+      "short": "Are appropriate exemptions clearly defined?",
+      "description": "The ordinance should clearly define exemptions such as: airport lighting, infrared security lighting, construction lighting, holiday decoration during specified dates, and 5 Watt or less per fixture solar lights for landscape and walkways. All exemptions should be explicitly stated.",
+      "weight": 1.0
     }
   ]
 }

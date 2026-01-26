@@ -7,14 +7,14 @@ from app.analysis.scorer import OrdinanceScorer
 from pathlib import Path
 import datetime
 
-st.set_page_config(page_title="Ordinance Semantic Scorer", layout="wide")
+st.set_page_config(page_title="Dark Sky Ordinance Semantic Scorer", layout="wide")
 
-st.title("City Ordinance Semantic Scorer")
-st.markdown("Upload a city ordinance PDF, run semantic analysis, and get a score breakdown.")
+st.title("Dark Sky Ordinance Semantic Scorer")
+st.markdown("Upload a dark sky or outdoor lighting ordinance PDF, run semantic analysis against dark sky criteria, and get a score breakdown.")
 
 # Sidebar options
 st.sidebar.header("Options")
-backend = st.sidebar.selectbox("Embedding backend", ["local (sentence-transformers)", "openai"]) 
+model_name = st.sidebar.text_input("Sentence-Transformers model", value="all-MiniLM-L6-v2")
 chunk_size = st.sidebar.slider("Chunk size (chars)", min_value=500, max_value=5000, value=2000, step=100)
 chunk_overlap = st.sidebar.slider("Chunk overlap (chars)", min_value=50, max_value=1000, value=200, step=50)
 top_k = st.sidebar.number_input("Top excerpts per criterion", min_value=1, max_value=5, value=1)
@@ -44,13 +44,8 @@ if uploaded_file is not None:
     chunks = chunk_text(raw_text, chunk_size=chunk_size, overlap=chunk_overlap)
     st.success(f"Split into {len(chunks)} chunks (size ~{chunk_size})")
 
-    # Embeddings provider
-    if backend.startswith("openai"):
-        api_key = st.sidebar.text_input("OpenAI API key (optional)", type="password")
-        provider = EmbeddingProvider(backend="openai", openai_api_key=api_key or None)
-    else:
-        model_name = st.sidebar.text_input("Sentence-Transformers model", value="all-MiniLM-L6-v2")
-        provider = EmbeddingProvider(backend="local", model_name=model_name)
+    # Embeddings provider (local-only)
+    provider = EmbeddingProvider(model_name=model_name)
 
     if st.button("Run semantic scoring"):
         with st.spinner("Embedding document and criteria..."):
