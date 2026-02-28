@@ -1,7 +1,9 @@
 .venv/
+.venv-ordinance-semantic-scorer/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 *.db
 .DS_Store
+.vscode/

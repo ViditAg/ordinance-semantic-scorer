@@ -15,16 +15,25 @@ Features
 - Downloadable JSON report
 
 Quick start (local)
-1. Create and activate a Python 3.9+ venv:
-   python -m venv .venv
-   source .venv/bin/activate  # macOS / Linux
-   .venv\Scripts\activate     # Windows
+1. Create and activate a Python 3.9+ venv (the helper script does both steps):
+   bash scripts/create_venv.sh
+   source .venv-ordinance-semantic-scorer/bin/activate
 
-2. Install dependencies:
+2. Install all dependencies (app + dev/test):
    pip install -r requirements.txt
 
 3. Run the app:
    streamlit run streamlit_app.py
+
+Running tests
+- Run the full test suite:
+   pytest
+- Unit tests only:
+   pytest tests/unit/
+- Integration tests only:
+   pytest tests/integration/
+- Stop on first failure:
+   pytest -x
 
 Files of interest
 - streamlit_app.py — Streamlit UI and orchestration
@@ -43,7 +52,7 @@ Documentation
 - **[EXPLAINER.md](EXPLAINER.md)** - Comprehensive guide covering:
   - How the tool works (technical details)
   - Scoring methodology
-  - All 30 dark sky criteria explained
+  - All 29 dark sky criteria explained
   - Usage instructions (web and CLI)
   - Interpreting results
   - Best practices

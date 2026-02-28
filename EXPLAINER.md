@@ -8,7 +8,7 @@ The Dark Sky Ordinance Semantic Scorer is a Python-based tool that automatically
 
 1. **Parses PDF Documents**: Extracts text from ordinance PDF files
 2. **Semantic Analysis**: Uses machine learning embeddings to understand the meaning of text
-3. **Criteria Matching**: Compares ordinance content against 30 dark sky criteria
+3. **Criteria Matching**: Compares ordinance content against 29 dark sky criteria
 4. **Scoring**: Provides per-criterion scores (0-100) and an overall weighted score
 5. **Evidence Extraction**: Shows the most relevant excerpts from the ordinance for each criterion
 
@@ -16,7 +16,7 @@ The Dark Sky Ordinance Semantic Scorer is a Python-based tool that automatically
 
 - **Fully Local**: No external API calls - all processing happens on your machine
 - **Semantic Understanding**: Uses advanced NLP to understand context, not just keyword matching
-- **Comprehensive Criteria**: 30 criteria covering all aspects of dark sky ordinances
+- **Comprehensive Criteria**: 29 criteria covering all aspects of dark sky ordinances
 - **Weighted Scoring**: Important criteria (like shielding requirements) have higher weights
 - **Evidence-Based**: Shows exactly which parts of the ordinance match each criterion
 
@@ -68,7 +68,7 @@ PDF Document
 
 #### 4. **Similarity Calculation**
 - For each criterion, computes cosine similarity with all document chunks
-- Cosine similarity measures angle between vectors (0 = identical, 1 = orthogonal)
+- Cosine similarity measures the cosine of the angle between two vectors: **1 = identical direction** (most similar), **0 = orthogonal** (unrelated), **−1 = opposite direction** (most dissimilar)
 - Finds the highest similarity score for each criterion
 
 #### 5. **Score Normalization**
@@ -87,7 +87,7 @@ PDF Document
 
 ### Per-Criterion Scoring
 
-Each of the 30 criteria is scored independently:
+Each of the 29 criteria is scored independently:
 
 1. **Embedding Generation**: Criterion description is converted to an embedding vector
 2. **Document Comparison**: Every document chunk is compared to the criterion embedding
@@ -120,7 +120,7 @@ Overall score: (153 + 105 + 60) / 4.3 = 74.0
 
 ---
 
-## The 30 Dark Sky Criteria
+## The 29 Dark Sky Criteria
 
 ### Core Requirements (High Weight: 1.5-1.8)
 
@@ -129,39 +129,39 @@ Overall score: (153 + 105 + 60) / 4.3 = 74.0
 3. **Light Trespass Standard** (1.7) - Prohibition of visible light from off-site
 4. **Color Temperature (CCT)** (1.6) - Limits on color temperature (amber/yellow preferred)
 5. **Uplighting Prohibition** (1.5) - No upward-directed lighting
+6. **Lighting Classifications** (1.5) - Class 1, 2, 3 lighting definitions
 
 ### Operational Requirements (Medium-High Weight: 1.3-1.4)
 
-6. **Commercial Extinguish Times** (1.4) - Lights off by 11 PM or after business hours
-7. **Lumen Output Limits - Non-Residential** (1.4) - Maximum lumens per acre
-8. **Lighting Classifications** (1.5) - Class 1, 2, 3 lighting definitions
+7. **Commercial Extinguish Times** (1.4) - Lights off by 11 PM or after business hours
+8. **Lumen Output Limits - Non-Residential** (1.4) - Maximum lumens per acre
 9. **Public Street Lights** (1.4) - BUG rating requirements
 10. **Parking Lot Lighting** (1.4) - Shielded amber lights, off times
 11. **Lighting Plans and Approvals** (1.4) - Required for new construction
 
 ### Specific Applications (Medium Weight: 1.1-1.3)
 
-12. **Residential Extinguish Times** (1.3)
-13. **Lumen Output Limits - Residential** (1.3)
-14. **Security Lights** (1.3)
-15. **Sports and Recreational Lighting** (1.3)
-16. **Enforcement and Penalties** (1.3)
-17. **Motion Sensors and Smart Lighting** (1.2)
-18. **Decorative and Architectural Lighting** (1.2)
-19. **Inspection Requirements** (1.2)
-20. **Greenhouse Lighting** (1.2)
-21. **Outdoor Display Lots** (1.2)
+12. **Applicability and Scope** (1.3) - Defines what outdoor lighting is covered
+13. **Residential Extinguish Times** (1.3)
+14. **Lumen Output Limits - Residential** (1.3)
+15. **Security Lights** (1.3)
+16. **Sports and Recreational Lighting** (1.3)
+17. **Enforcement and Penalties** (1.3)
+18. **Motion Sensors and Smart Lighting** (1.2)
+19. **Decorative and Architectural Lighting** (1.2)
+20. **Inspection Requirements** (1.2)
+21. **Greenhouse Lighting** (1.2)
+22. **Outdoor Display Lots** (1.2)
 
 ### Supporting Elements (Lower Weight: 0.9-1.1)
 
-22. **Internally Lighted Signs** (1.1)
-23. **Compliance Timeline** (1.1)
-24. **Externally Lighted Signs** (1.1)
-25. **Digital Billboard Signs** (1.1)
-26. **String Lights** (1.0)
-27. **Holiday Decorative Lighting** (0.9)
+23. **Internally Lighted Signs** (1.1)
+24. **Compliance Timeline and Grandfathering** (1.1)
+25. **Externally Lighted Signs** (1.1)
+26. **Digital Billboard Signs** (1.1)
+27. **String Lights** (1.0)
 28. **Exemptions** (1.0)
-29. **Applicability and Scope** (1.3)
+29. **Holiday Decorative Lighting** (0.9)
 
 ---
 
@@ -193,6 +193,47 @@ streamlit run streamlit_app.py
 - Low scores indicate missing or weak provisions
 - Evidence excerpts show where the ordinance addresses (or doesn't address) each criterion
 - Use evidence to identify specific sections that need improvement
+
+### Running the Test Suite
+
+All tests live in `tests/` and require no internet access — the ML model and PDF parser are mocked.
+
+**Run all tests:**
+```bash
+pytest
+```
+
+**Unit tests only** (fast, no heavy dependencies):
+```bash
+pytest tests/unit/
+```
+
+**Integration tests only** (wires the full pipeline with mocked embeddings):
+```bash
+pytest tests/integration/
+```
+
+**Useful flags:**
+```bash
+pytest -x          # stop on the first failure
+pytest -s          # show print() output while running
+pytest -k scorer   # run only tests whose name contains "scorer"
+```
+
+**Test layout:**
+```
+tests/
+├── conftest.py                  # shared fixtures (mock model, mock PDF, criteria)
+├── unit/
+│   ├── test_text_splitter.py    # chunk_text() behaviour and edge cases
+│   ├── test_pdf_parser.py       # extract_text_from_pdf() with mocked pdfplumber
+│   ├── test_embeddings.py       # cosine_similarity() and EmbeddingProvider
+│   └── test_scorer.py           # OrdinanceScorer scoring logic and weight math
+└── integration/
+    └── test_pipeline.py         # end-to-end pipeline + criteria.json integrity
+```
+
+---
 
 ### Command-Line Interface
 
@@ -318,7 +359,7 @@ Evidence excerpts show the actual text from your ordinance that matches each cri
 2. **Use Technical Terms**: Include proper terminology (e.g., "full cutoff", "BUG rating")
 3. **Provide Examples**: Include examples of compliant and non-compliant lighting
 4. **Define Terms**: Have a definitions section for technical terms
-5. **Be Comprehensive**: Address all 30 criteria for best scores
+5. **Be Comprehensive**: Address all 29 criteria for best scores
 
 ### For Evaluators
 
@@ -467,7 +508,7 @@ ordinance-semantic-scorer/
 │   │   ├── embeddings.py      # SentenceTransformer wrapper
 │   │   └── scorer.py           # Scoring logic
 │   ├── data/
-│   │   └── criteria.json       # 30 dark sky criteria
+│   │   └── criteria.json       # 29 dark sky criteria
 │   └── utils/
 │       ├── pdf_parser.py        # PDF extraction
 │       └── text_splitter.py     # Text chunking
