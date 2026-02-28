@@ -16,7 +16,7 @@ Features
 
 Quick start (local)
 1. Create and activate a Python 3.9+ venv (the helper script does both steps):
-   bash scripts/create_venv.sh
+   bash create_venv.sh
    source .venv-ordinance-semantic-scorer/bin/activate
 
 2. Install all dependencies (app + dev/test):

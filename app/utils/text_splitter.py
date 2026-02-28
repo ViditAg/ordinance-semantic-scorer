@@ -18,9 +18,9 @@ def chunk_text(text: str, chunk_size: int = 2000, overlap: int = 200) -> List[st
         chunk = text[start:end].strip()
         if chunk:
             chunks.append(chunk)
+        if end >= text_len:
+            break
         start = end - overlap
         if start < 0:
             start = 0
-        if start >= text_len:
-            break
     return chunks

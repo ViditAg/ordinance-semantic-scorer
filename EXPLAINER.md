@@ -239,7 +239,7 @@ tests/
 
 **Score a single PDF:**
 ```bash
-python scripts/score_samples.py \
+python score_samples.py \
   --sample-dir sample \
   --criteria app/data/criteria.json \
   --model all-MiniLM-L6-v2 \
@@ -463,7 +463,7 @@ Edit `app/data/criteria.json` to:
 Process multiple ordinances:
 ```bash
 # Put all PDFs in a directory
-python scripts/score_samples.py --sample-dir ordinances/ --out-dir results/
+python score_samples.py --sample-dir ordinances/ --out-dir results/
 ```
 
 ### Comparing Ordinances
@@ -512,8 +512,8 @@ ordinance-semantic-scorer/
 │   └── utils/
 │       ├── pdf_parser.py        # PDF extraction
 │       └── text_splitter.py     # Text chunking
-├── scripts/
-│   └── score_samples.py         # CLI interface
+├── score_samples.py            # CLI batch scorer
+├── create_venv.sh              # venv setup helper
 └── streamlit_app.py            # Web interface
 ```
 
