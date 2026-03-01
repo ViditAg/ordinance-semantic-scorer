@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Dark Sky Ordinance Semantic Scorer is a Python-based tool that automatically evaluates dark sky and outdoor lighting ordinances against a comprehensive set of best-practice criteria. Using semantic similarity analysis powered by SentenceTransformer models, the tool scores how well an ordinance document addresses key dark sky protection requirements.
+The Dark Sky Ordinance Semantic Scorer is a Python-based tool that automatically evaluates outdoor lighting ordinance against a comprehensive set of best-practice criteria. Using semantic similarity analysis powered by [SentenceTransformer](https://huggingface.co/sentence-transformers) models, the tool scores how well an ordinance document addresses key dark sky protection requirements.
 
 ### What It Does
 
@@ -169,11 +169,7 @@ Overall score: (153 + 105 + 60) / 4.3 = 74.0
 
 ### Streamlit Web Interface
 
-**Start the app:**
-```bash
-source .venv/bin/activate
-streamlit run streamlit_app.py
-```
+**Start the app:** see [README.md](README.md) Quick start (local)
 
 **Using the interface:**
 
@@ -383,19 +379,19 @@ Evidence excerpts show the actual text from your ordinance that matches each cri
 
 ### What the Tool Does Well
 
-✅ Identifies if criteria are addressed in the ordinance
-✅ Finds relevant sections automatically
-✅ Provides quantitative scores for comparison
-✅ Handles various writing styles and formats
-✅ Works with any PDF ordinance document
+- Identifies if criteria are addressed in the ordinance
+- Finds relevant sections automatically
+- Provides quantitative scores for comparison
+- Handles various writing styles and formats
+- Works with any PDF ordinance document
 
 ### What the Tool Cannot Do
 
-❌ Evaluate legal quality or enforceability
-❌ Check for contradictions or conflicts
-❌ Verify compliance with local laws
-❌ Assess political feasibility
-❌ Replace expert legal review
+- Evaluate legal quality or enforceability
+- Check for contradictions or conflicts
+- Verify compliance with local laws
+- Assess political feasibility
+- Replace expert legal review
 
 ### Important Notes
 

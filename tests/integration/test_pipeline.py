@@ -11,6 +11,7 @@ They verify:
   1. criteria.json is loadable and well-formed
   2. The text-splitting and scoring pipeline produces consistent, sensible output
   3. Key invariants hold end-to-end (score count, score range, required keys …)
+  4. The real sample PDF can be parsed and produces non-empty text (smoke test)
 """
 from __future__ import annotations
 
@@ -28,6 +29,7 @@ from app.utils.text_splitter import chunk_text
 
 ROOT = Path(__file__).resolve().parents[2]
 CRITERIA_PATH = ROOT / "app" / "data" / "criteria.json"
+SAMPLE_PDF = ROOT / "sample" / "updated_dark_skies_outdoor_lighting_ordinance.pdf"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -293,3 +295,64 @@ class TestScriptHelpers:
         bad.write_bytes(b"fake content")
         with pytest.raises(ValueError, match="Unsupported"):
             _load_text(bad)
+
+
+# ---------------------------------------------------------------------------
+# 5. Real sample PDF smoke tests (no mocking — uses actual pdfplumber)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    not SAMPLE_PDF.exists(),
+    reason=f"Sample PDF not found at {SAMPLE_PDF}",
+)
+class TestRealSamplePdf:
+    """
+    Smoke tests against the real ordinance PDF in sample/.
+    These use pdfplumber for genuine text extraction — no mocking.
+    They do NOT run the embedding model; text extraction and chunking only.
+    """
+
+    @pytest.fixture(scope="class")
+    def extracted_text(self):
+        from app.utils.pdf_parser import extract_text_from_pdf
+        with SAMPLE_PDF.open("rb") as fh:
+            return extract_text_from_pdf(fh)
+
+    @pytest.fixture(scope="class")
+    def chunks(self, extracted_text):
+        return chunk_text(extracted_text, chunk_size=2000, overlap=200)
+
+    # --- extraction ---
+
+    def test_pdf_extraction_returns_non_empty_string(self, extracted_text):
+        assert isinstance(extracted_text, str)
+        assert len(extracted_text.strip()) > 0, "No text extracted from sample PDF"
+
+    def test_pdf_extraction_contains_expected_keywords(self, extracted_text):
+        """The ordinance should mention core dark-sky concepts."""
+        text_lower = extracted_text.lower()
+        keywords = ["lighting", "shielded", "outdoor"]
+        for kw in keywords:
+            assert kw in text_lower, f"Expected keyword '{kw}' not found in extracted text"
+
+    def test_pdf_extraction_has_reasonable_length(self, extracted_text):
+        """A real ordinance PDF should produce at least 1 000 characters."""
+        assert len(extracted_text) >= 1_000, (
+            f"Extracted text suspiciously short: {len(extracted_text)} chars"
+        )
+
+    # --- chunking ---
+
+    def test_chunking_produces_multiple_chunks(self, chunks):
+        assert len(chunks) > 1, "Expected multiple chunks from a real ordinance PDF"
+
+    def test_all_chunks_are_non_empty_strings(self, chunks):
+        for i, chunk in enumerate(chunks):
+            assert isinstance(chunk, str) and chunk.strip(), (
+                f"Chunk {i} is empty or not a string"
+            )
+
+    def test_all_chunks_within_size_limit(self, chunks):
+        for i, chunk in enumerate(chunks):
+            assert len(chunk) <= 2000, f"Chunk {i} exceeds chunk_size: {len(chunk)} chars"
