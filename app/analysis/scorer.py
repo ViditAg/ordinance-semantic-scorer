@@ -1,6 +1,8 @@
+""" Scorer class definition"""
+
+# importing public libraries
 from typing import List, Dict, Any
 import numpy as np
-from .embeddings import cosine_similarity
 
 class OrdinanceScorer:
     """
@@ -12,17 +14,36 @@ class OrdinanceScorer:
       - weight (optional, default 1.0)
       - short (optional short summary)
     """
-    def __init__(self, criteria: List[Dict[str, Any]]):
+    def __init__(
+        self,
+        criteria: List[Dict[str, Any]]
+    ):
+        """OrdinanceScorer class initializer
+        
+        Parameters:
+            criteria 
+        """
+        # add criteria data to a class member variable
         self.criteria = criteria
-        # normalize weights
+        
+        # normalize weights and add to a class member variable
+        ## get weight values for each criteria in a list
         weights = [c.get("weight", 1.0) for c in criteria]
+        ## normalization factor, 1 if sum of weights is None
         total = sum(weights) or 1.0
+        ## normalize and add
         self.weights = [w / total for w in weights]
 
-    def score(self, doc_chunks: List[str], doc_embeddings: List[List[float]],
-              crit_embeddings: List[List[float]], top_k: int = 1) -> Dict[str, Any]:
+    def score(
+        self,
+        doc_chunks: List[str],
+        doc_embeddings: List[List[float]],
+        crit_embeddings: List[List[float]],
+        top_k: int = 1
+    ) -> Dict[str, Any]:
         """
-        For each criterion, compute the max cosine similarity across document chunks,
+        For each criterion, compute the max 
+        cosine similarity across document chunks,
         scale to 0-100, and collect top matching excerpts.
         """
         doc_embs = doc_embeddings
