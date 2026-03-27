@@ -230,36 +230,6 @@ tests/
 
 ---
 
-### Command-Line Interface
-
-**Score a single PDF:**
-```bash
-python score_samples.py \
-  --sample-dir sample \
-  --criteria app/criteria.json \
-  --model all-MiniLM-L6-v2 \
-  --chunk-size 2000 \
-  --chunk-overlap 200 \
-  --top-k 1 \
-  --out-dir out
-```
-
-**Parameters:**
-- `--sample-dir`: Directory containing PDF files to score
-- `--criteria`: Path to criteria JSON file
-- `--model`: SentenceTransformer model name
-- `--chunk-size`: Size of text chunks in characters
-- `--chunk-overlap`: Overlap between chunks
-- `--top-k`: Number of top excerpts to save per criterion
-- `--out-dir`: Directory for output JSON reports
-
-**Output:**
-- Creates JSON files in `out/` directory
-- Each file named `{pdf_name}_score.json`
-- Contains overall score, per-criterion scores, and evidence excerpts
-
----
-
 ## Understanding the Results
 
 ### JSON Report Structure
@@ -453,17 +423,13 @@ Edit `app/criteria.json` to:
 }
 ```
 
-### Batch Processing
+### Batch processing
 
-Process multiple ordinances:
-```bash
-# Put all PDFs in a directory
-python score_samples.py --sample-dir ordinances/ --out-dir results/
-```
+Scoring runs through the Streamlit app per upload. Download a JSON report for each ordinance from the app, or call `OrdinanceScorer` from your own script if you need automation.
 
 ### Comparing Ordinances
 
-1. Score multiple ordinances
+1. Score each ordinance in the app (or via your own script)
 2. Compare JSON outputs
 3. Look for patterns in low-scoring criteria
 4. Identify best practices from high-scoring ordinances
@@ -502,7 +468,6 @@ ordinance-semantic-scorer/
 │   ├── scorer.py               # OrdinanceScorer: embeddings + cosine batching + scoring
 │   ├── utils.py                # PDF extraction and text chunking
 │   └── criteria.json           # 29 dark sky criteria
-├── score_samples.py            # CLI batch scorer
 ├── create_venv.sh              # venv setup helper
 └── streamlit_app.py            # Web interface
 ```

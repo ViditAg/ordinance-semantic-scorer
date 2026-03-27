@@ -260,41 +260,7 @@ class TestFullPipeline:
 
 
 # ---------------------------------------------------------------------------
-# 4. score_samples.py helpers (no CLI invocation needed)
-# ---------------------------------------------------------------------------
-
-
-class TestScriptHelpers:
-    """Tests for the helper functions used by the CLI script."""
-
-    def test_load_criteria_from_json(self):
-        from score_samples import _load_criteria
-        criteria = _load_criteria(CRITERIA_PATH)
-        assert len(criteria) == EXPECTED_CRITERIA_COUNT
-
-    def test_load_criteria_raises_on_bad_format(self, tmp_path):
-        from score_samples import _load_criteria
-        bad_file = tmp_path / "bad.json"
-        bad_file.write_text(json.dumps([{"title": "X"}]), encoding="utf-8")
-        with pytest.raises(ValueError, match="criteria"):
-            _load_criteria(bad_file)
-
-    def test_load_text_from_txt_file(self, tmp_path):
-        from score_samples import _load_text
-        txt = tmp_path / "ordinance.txt"
-        txt.write_text("All lights shall be shielded.", encoding="utf-8")
-        assert _load_text(txt) == "All lights shall be shielded."
-
-    def test_load_text_unsupported_extension_raises(self, tmp_path):
-        from score_samples import _load_text
-        bad = tmp_path / "file.docx"
-        bad.write_bytes(b"fake content")
-        with pytest.raises(ValueError, match="Unsupported"):
-            _load_text(bad)
-
-
-# ---------------------------------------------------------------------------
-# 5. Real sample PDF smoke tests (no mocking — uses actual pdfplumber)
+# 4. Real sample PDF smoke tests (no mocking — uses actual pdfplumber)
 # ---------------------------------------------------------------------------
 
 
