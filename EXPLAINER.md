@@ -222,10 +222,10 @@ tests/
 ├── conftest.py                  # shared fixtures (mock model, mock PDF, criteria)
 ├── unit/
 │   ├── test_utils.py            # chunk_text() and extract_text_from_pdf() (mocked pdfplumber)
-│   └── test_scorer.py           # OrdinanceScorer: _sim_to_score, _cosine_similarities_array,
-│                                # weights, score(), embed_texts() (mocked SentenceTransformer)
+│   └── test_scorer.py           # OrdinanceScorer unit tests (mocked model where needed)
 └── integration/
-    └── test_pipeline.py         # end-to-end pipeline + criteria.json integrity
+    ├── test_ordinance_workflow.py  # app/ordinance_workflow.py: criteria, chunking, scoring, reports, sample PDF
+    └── test_streamlit_app.py       # streamlit_app.py: AppTest smoke + UI chrome
 ```
 
 ---

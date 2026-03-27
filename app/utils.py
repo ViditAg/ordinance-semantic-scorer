@@ -5,7 +5,9 @@ import pdfplumber
 from typing import BinaryIO, List
 
 # function to extract text from a PDF file
-def extract_text_from_pdf(file_obj: BinaryIO) -> str:
+def extract_text_from_pdf(
+    file_obj: BinaryIO
+) -> str:
     """
     Extracts text from an uploaded PDF file-like object using pdfplumber.
     Returns concatenated text from all pages.
