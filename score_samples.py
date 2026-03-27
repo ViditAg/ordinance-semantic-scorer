@@ -5,10 +5,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from app.analysis.embeddings import EmbeddingProvider
-from app.analysis.scorer import OrdinanceScorer
-from app.utils.pdf_parser import extract_text_from_pdf
-from app.utils.text_splitter import chunk_text
+from app.scorer import OrdinanceScorer
+from app.utils import chunk_text, extract_text_from_pdf
 
 
 def _load_text(path: Path) -> str:
@@ -30,7 +28,7 @@ def _load_criteria(criteria_path: Path) -> list[dict[str, Any]]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Score all sample ordinances locally (Sentence-Transformers only).")
     parser.add_argument("--sample-dir", default="sample", help="Directory containing sample files")
-    parser.add_argument("--criteria", default="app/data/criteria.json", help="Path to criteria JSON")
+    parser.add_argument("--criteria", default="app/criteria.json", help="Path to criteria JSON")
     parser.add_argument("--model", default="all-MiniLM-L6-v2", help="Sentence-Transformers model name")
     parser.add_argument("--chunk-size", type=int, default=2000)
     parser.add_argument("--chunk-overlap", type=int, default=200)
@@ -44,11 +42,10 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     criteria = _load_criteria(criteria_path)
-    scorer = OrdinanceScorer(criteria=criteria)
-    provider = EmbeddingProvider(model_name=args.model)
+    scorer = OrdinanceScorer(criteria=criteria, model_name=args.model)
 
     crit_texts = [c.get("description", "") for c in criteria]
-    crit_embeddings = provider.embed_texts(crit_texts)
+    crit_embeddings = scorer.embed_texts(crit_texts)
 
     files = sorted(
         [
@@ -67,7 +64,7 @@ def main() -> int:
             continue
 
         chunks = chunk_text(raw_text, chunk_size=args.chunk_size, overlap=args.chunk_overlap)
-        doc_embeddings = provider.embed_texts(chunks)
+        doc_embeddings = scorer.embed_texts(chunks)
 
         results = scorer.score(
             doc_chunks=chunks,

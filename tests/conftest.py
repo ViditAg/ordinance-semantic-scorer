@@ -22,7 +22,7 @@ import pytest
 # ---------------------------------------------------------------------------
 
 ROOT = Path(__file__).resolve().parents[1]
-CRITERIA_PATH = ROOT / "app" / "data" / "criteria.json"
+CRITERIA_PATH = ROOT / "app" / "criteria.json"
 
 
 # ---------------------------------------------------------------------------
@@ -78,9 +78,9 @@ def fake_embeddings() -> list[list[float]]:
 @pytest.fixture()
 def mock_sentence_transformer():
     """
-    Patch *app.analysis.embeddings._get_sentence_transformer* so that no model
-    download occurs.  The mock's `encode` method returns normalised float32
-    vectors of dimension 8.
+    Patch *app.scorer._get_sentence_transformer* so that no model download
+    occurs. The mock's `encode` method returns normalised float32 vectors of
+    dimension 8.
     """
     mock_model = MagicMock()
 
@@ -94,7 +94,7 @@ def mock_sentence_transformer():
     mock_model.encode.side_effect = _fake_encode
 
     with patch(
-        "app.analysis.embeddings._get_sentence_transformer",
+        "app.scorer._get_sentence_transformer",
         return_value=mock_model,
     ):
         yield mock_model

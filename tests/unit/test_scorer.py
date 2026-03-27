@@ -1,23 +1,24 @@
 """
-Unit tests for app.analysis.scorer.OrdinanceScorer
-====================================================
+Unit tests for app.scorer (OrdinanceScorer and static helpers).
 
-All embeddings are constructed manually (no model download needed).
+Embeddings in scoring tests are hand-crafted (no model download).
 
 Covered:
-  * _sim_to_score()           – static score normalisation
-  * _cosine_similarities_array() – batch cosine computation
-  * OrdinanceScorer.__init__  – weight normalisation
-  * OrdinanceScorer.score()   – full scoring pipeline
+  * _sim_to_score() — static score normalisation
+  * _cosine_similarities_array() — batch cosine (used inside score())
+  * OrdinanceScorer.__init__ — weight normalisation
+  * OrdinanceScorer.score() — full scoring pipeline
+  * OrdinanceScorer.embed_texts() — SentenceTransformer mocked
 """
 from __future__ import annotations
 
 import math
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 
-from app.analysis.scorer import OrdinanceScorer
+from app.scorer import OrdinanceScorer
 
 
 # ---------------------------------------------------------------------------
@@ -37,6 +38,41 @@ def _orthogonal_basis(dim: int, n: int) -> list[list[float]]:
     assert n <= dim
     eye = np.eye(dim)
     return [eye[i].tolist() for i in range(n)]
+
+
+def _minimal_criteria():
+    return [{"title": "t", "description": "d", "weight": 1.0}]
+
+
+def _make_mock_model(dim: int = 8, seed: int = 42):
+    """Return a MagicMock that mimics SentenceTransformer.encode."""
+    mock_model = MagicMock()
+    rng = np.random.default_rng(seed)
+
+    def _fake_encode(texts, show_progress_bar=False, convert_to_numpy=True,
+                     normalize_embeddings=True):
+        arr = rng.standard_normal((len(texts), dim)).astype(np.float32)
+        norms = np.linalg.norm(arr, axis=1, keepdims=True)
+        return arr / np.where(norms == 0, 1.0, norms)
+
+    mock_model.encode.side_effect = _fake_encode
+    return mock_model
+
+
+def _manual_row_cosines(vec: list[float], matrix: list[list[float]]) -> list[float]:
+    """Reference cosine(vec, row) per row — mirrors _cosine_similarities_array."""
+    v = np.array(vec, dtype=float)
+    vn = np.linalg.norm(v)
+    out = []
+    for row in matrix:
+        r = np.array(row, dtype=float)
+        rn = np.linalg.norm(r)
+        denom = vn * rn
+        if denom == 0:
+            out.append(float("nan"))
+        else:
+            out.append(float(np.dot(v, r) / denom))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -63,18 +99,16 @@ class TestSimToScore:
         assert OrdinanceScorer._sim_to_score(sim) == pytest.approx(73.0)
 
     def test_result_is_rounded_to_two_decimal_places(self):
-        # round(0.12345 * 100, 2) == 12.35
         result = OrdinanceScorer._sim_to_score(0.12345)
-        # Verify no more than 2 decimal places.
         assert result == round(result, 2)
 
 
 # ---------------------------------------------------------------------------
-# _cosine_similarities_array
+# _cosine_similarities_array (batch cosine — scoring hot path)
 # ---------------------------------------------------------------------------
 
 
-class TestCosineSimArray:
+class TestCosineSimilaritiesArray:
     def test_identical_vector_gives_one(self):
         v = [1.0, 0.0, 0.0]
         M = [[1.0, 0.0, 0.0]]
@@ -102,7 +136,7 @@ class TestCosineSimArray:
 
     def test_multiple_rows_computed_correctly(self):
         v = [1.0, 0.0, 0.0]
-        M = _orthogonal_basis(3, 3)  # identity matrix rows
+        M = _orthogonal_basis(3, 3)
         sims = OrdinanceScorer._cosine_similarities_array(v, M)
         assert sims[0] == pytest.approx(1.0, abs=1e-6)
         assert sims[1] == pytest.approx(0.0, abs=1e-6)
@@ -113,6 +147,18 @@ class TestCosineSimArray:
         M = [[1.0, 0.0]]
         result = OrdinanceScorer._cosine_similarities_array(v, M)
         assert isinstance(result, np.ndarray)
+
+    def test_matches_per_row_cosine_formula_nonzero_rows(self):
+        """Batch output equals cosine(vec, row) for ordinary nonzero rows."""
+        v = _unit([1.0, 2.0, -0.5])
+        M = [
+            _unit([0.1, -3.0, 2.0]),
+            _unit([2.0, 2.0, 2.0]),
+        ]
+        sims = OrdinanceScorer._cosine_similarities_array(v, M)
+        expected = _manual_row_cosines(v, M)
+        for got, exp in zip(sims.tolist(), expected):
+            assert got == pytest.approx(exp, abs=1e-6)
 
 
 # ---------------------------------------------------------------------------
@@ -138,9 +184,8 @@ class TestWeightNormalisation:
             assert w == pytest.approx(1.0 / n, abs=1e-9)
 
     def test_missing_weight_defaults_to_one(self):
-        """Criteria without a 'weight' key should default to 1.0."""
         criteria = [
-            {"title": "A", "description": "d"},   # no weight key
+            {"title": "A", "description": "d"},
             {"title": "B", "description": "d", "weight": 1.0},
         ]
         scorer = OrdinanceScorer(criteria)
@@ -148,12 +193,10 @@ class TestWeightNormalisation:
         assert sum(scorer.weights) == pytest.approx(1.0)
 
     def test_all_zero_weights_fallback_to_uniform(self):
-        """Guard against degenerate all-zero weights (uses or 1.0 default)."""
         criteria = [
             {"title": "A", "description": "d", "weight": 0.0},
             {"title": "B", "description": "d", "weight": 0.0},
         ]
-        # This should not raise; the sum falls back to 1.0 via `sum(weights) or 1.0`
         scorer = OrdinanceScorer(criteria)
         assert all(w == pytest.approx(0.0) for w in scorer.weights)
 
@@ -166,8 +209,6 @@ class TestWeightNormalisation:
 class TestScorerScore:
     """Integration-style unit tests using hand-crafted embeddings."""
 
-    # ---------- fixtures ----------
-
     @pytest.fixture()
     def two_criteria(self):
         return [
@@ -177,15 +218,12 @@ class TestScorerScore:
 
     @pytest.fixture()
     def identical_embeddings(self):
-        """Doc chunk and criterion have identical embeddings → score = 100."""
         vec = _unit([1.0, 0.0, 0.0, 0.0])
         return {
             "doc_chunks": ["chunk text"],
             "doc_embeddings": [vec],
             "crit_embeddings": [vec, _unit([0.0, 1.0, 0.0, 0.0])],
         }
-
-    # ---------- structural tests ----------
 
     def test_output_has_overall_score_key(self, two_criteria, identical_embeddings):
         scorer = OrdinanceScorer(two_criteria)
@@ -208,8 +246,6 @@ class TestScorerScore:
         required = {"title", "short", "score", "raw_similarity", "top_excerpts", "top_scores", "weight"}
         for r in result["criteria_results"]:
             assert required.issubset(r.keys()), f"Missing keys in {r}"
-
-    # ---------- score values ----------
 
     def test_identical_embedding_scores_one_hundred(self, two_criteria):
         vec = _unit([1.0, 0.0, 0.0])
@@ -237,7 +273,6 @@ class TestScorerScore:
         criteria = [{"title": str(i), "description": "d", "weight": 1.0} for i in range(n)]
         scorer = OrdinanceScorer(criteria)
         rng = np.random.default_rng(7)
-        # Random normalised embeddings
         D = rng.standard_normal((10, 16)).astype(float)
         D /= np.linalg.norm(D, axis=1, keepdims=True)
         C = rng.standard_normal((n, 16)).astype(float)
@@ -250,15 +285,11 @@ class TestScorerScore:
         for r in result["criteria_results"]:
             assert 0.0 <= r["score"] <= 100.0
 
-    # ---------- overall score ----------
-
     def test_overall_score_is_weighted_average(self):
         criteria = [
             {"title": "A", "description": "d", "weight": 2.0},
             {"title": "B", "description": "d", "weight": 1.0},
         ]
-        # Criterion A: identical to doc → score 100
-        # Criterion B: orthogonal to doc → score 0
         vec_a = _unit([1.0, 0.0])
         vec_b = _unit([0.0, 1.0])
         scorer = OrdinanceScorer(criteria)
@@ -267,11 +298,8 @@ class TestScorerScore:
             doc_embeddings=[vec_a],
             crit_embeddings=[vec_a, vec_b],
         )
-        # weights normalised: 2/3 and 1/3
         expected = (2 / 3) * 100.0 + (1 / 3) * 0.0
         assert result["overall_score"] == pytest.approx(expected, abs=0.1)
-
-    # ---------- top_k ----------
 
     def test_top_k_one_returns_single_excerpt(self):
         criteria = [{"title": "A", "description": "d", "weight": 1.0}]
@@ -302,17 +330,72 @@ class TestScorerScore:
         assert len(result["criteria_results"][0]["top_excerpts"]) == 3
 
     def test_raw_similarity_matches_max_cosine_similarity(self):
-        """raw_similarity should equal the maximum cosine similarity found."""
         criteria = [{"title": "A", "description": "d", "weight": 1.0}]
         vec_a = _unit([1.0, 0.0, 0.0])
         vec_b = _unit([0.0, 1.0, 0.0])
-        vec_c = _unit([1.0, 0.0, 0.0])   # identical to criterion
+        vec_c = _unit([1.0, 0.0, 0.0])
         scorer = OrdinanceScorer(criteria)
         result = scorer.score(
             doc_chunks=["a", "b", "c"],
             doc_embeddings=[vec_a, vec_b, vec_c],
             crit_embeddings=[vec_a],
         )
-        # All sims between [1,0,0] criterion and chunks [1,0,0], [0,1,0], [1,0,0]
-        # max is 1.0
         assert result["criteria_results"][0]["raw_similarity"] == pytest.approx(1.0, abs=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# OrdinanceScorer.embed_texts (mocked model)
+# ---------------------------------------------------------------------------
+
+
+class TestOrdinanceScorerEmbedTexts:
+    @pytest.fixture(autouse=True)
+    def _patch_model(self):
+        self._mock_model = _make_mock_model()
+        with patch(
+            "app.scorer._get_sentence_transformer",
+            return_value=self._mock_model,
+        ):
+            yield
+
+    def test_empty_input_returns_empty_list(self):
+        scorer = OrdinanceScorer(_minimal_criteria(), model_name="mock-model")
+        assert scorer.embed_texts([]) == []
+
+    def test_single_text_returns_list_of_length_one(self):
+        scorer = OrdinanceScorer(_minimal_criteria(), model_name="mock-model")
+        assert len(scorer.embed_texts(["hello"])) == 1
+
+    def test_multiple_texts_returns_correct_count(self):
+        scorer = OrdinanceScorer(_minimal_criteria(), model_name="mock-model")
+        texts = ["one", "two", "three", "four"]
+        assert len(scorer.embed_texts(texts)) == len(texts)
+
+    def test_each_embedding_is_a_list(self):
+        scorer = OrdinanceScorer(_minimal_criteria(), model_name="mock-model")
+        result = scorer.embed_texts(["test sentence"])
+        assert isinstance(result[0], list)
+
+    def test_each_embedding_element_is_float(self):
+        scorer = OrdinanceScorer(_minimal_criteria(), model_name="mock-model")
+        for val in scorer.embed_texts(["test sentence"])[0]:
+            assert isinstance(val, float)
+
+    def test_all_embeddings_have_same_dimension(self):
+        scorer = OrdinanceScorer(_minimal_criteria(), model_name="mock-model")
+        result = scorer.embed_texts(["hello", "world", "dark sky"])
+        assert len({len(e) for e in result}) == 1
+
+    def test_embeddings_are_approximately_unit_length(self):
+        scorer = OrdinanceScorer(_minimal_criteria(), model_name="mock-model")
+        for emb in scorer.embed_texts(["test text", "another sentence"]):
+            norm = math.sqrt(sum(x ** 2 for x in emb))
+            assert norm == pytest.approx(1.0, abs=1e-5)
+
+    def test_encode_is_called_with_texts(self):
+        scorer = OrdinanceScorer(_minimal_criteria(), model_name="mock-model")
+        texts = ["shielding requirement", "color temperature"]
+        scorer.embed_texts(texts)
+        self._mock_model.encode.assert_called_once()
+        call_args = self._mock_model.encode.call_args
+        assert call_args[0][0] == texts

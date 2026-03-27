@@ -3,7 +3,7 @@ Integration tests for the full ordinance-scoring pipeline
 ==========================================================
 
 These tests wire together the real application modules
-(pdf_parser → text_splitter → EmbeddingProvider → OrdinanceScorer)
+(pdf_parser → text_splitter → OrdinanceScorer embed + score)
 while replacing only the SentenceTransformer model and pdfplumber so that
 no internet access or file I/O is required.
 
@@ -23,12 +23,11 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from app.analysis.embeddings import EmbeddingProvider
-from app.analysis.scorer import OrdinanceScorer
-from app.utils.text_splitter import chunk_text
+from app.scorer import OrdinanceScorer
+from app.utils import chunk_text
 
 ROOT = Path(__file__).resolve().parents[2]
-CRITERIA_PATH = ROOT / "app" / "data" / "criteria.json"
+CRITERIA_PATH = ROOT / "app" / "criteria.json"
 SAMPLE_PDF = ROOT / "sample" / "updated_dark_skies_outdoor_lighting_ordinance.pdf"
 
 # ---------------------------------------------------------------------------
@@ -151,7 +150,7 @@ class TestChunkingPipeline:
 
 class TestFullPipeline:
     """
-    Wires: text → chunk_text → EmbeddingProvider.embed_texts → OrdinanceScorer.score
+    Wires: text → chunk_text → OrdinanceScorer.embed_texts → OrdinanceScorer.score
     The SentenceTransformer is replaced with a deterministic fake.
     """
 
@@ -167,7 +166,7 @@ class TestFullPipeline:
     def _patch_model(self):
         self._mock_model = _make_mock_model(dim=16, seed=99)
         with patch(
-            "app.analysis.embeddings._get_sentence_transformer",
+            "app.scorer._get_sentence_transformer",
             return_value=self._mock_model,
         ):
             yield
@@ -180,10 +179,9 @@ class TestFullPipeline:
     @pytest.fixture()
     def pipeline_result(self, criteria):
         chunks = chunk_text(self.SAMPLE_TEXT, chunk_size=500, overlap=50)
-        provider = EmbeddingProvider(model_name="mock-model")
-        doc_embeddings = provider.embed_texts(chunks)
-        crit_embeddings = provider.embed_texts([c["description"] for c in criteria])
-        scorer = OrdinanceScorer(criteria=criteria)
+        scorer = OrdinanceScorer(criteria=criteria, model_name="mock-model")
+        doc_embeddings = scorer.embed_texts(chunks)
+        crit_embeddings = scorer.embed_texts([c["description"] for c in criteria])
         return scorer.score(
             doc_chunks=chunks,
             doc_embeddings=doc_embeddings,
@@ -227,10 +225,10 @@ class TestFullPipeline:
             for excerpt in r["top_excerpts"]:
                 assert isinstance(excerpt, str)
 
-    def test_doc_embeddings_count_equals_chunk_count(self):
+    def test_doc_embeddings_count_equals_chunk_count(self, criteria):
         chunks = chunk_text(self.SAMPLE_TEXT, chunk_size=500, overlap=50)
-        provider = EmbeddingProvider(model_name="mock-model")
-        doc_embeddings = provider.embed_texts(chunks)
+        scorer = OrdinanceScorer(criteria=criteria, model_name="mock-model")
+        doc_embeddings = scorer.embed_texts(chunks)
         assert len(doc_embeddings) == len(chunks), (
             "Number of embeddings must match number of chunks"
         )
@@ -238,8 +236,8 @@ class TestFullPipeline:
     def test_crit_embeddings_count_equals_criteria_count(self):
         data = json.loads(CRITERIA_PATH.read_text(encoding="utf-8"))
         criteria = data["criteria"]
-        provider = EmbeddingProvider(model_name="mock-model")
-        crit_embeddings = provider.embed_texts([c["description"] for c in criteria])
+        scorer = OrdinanceScorer(criteria=criteria, model_name="mock-model")
+        crit_embeddings = scorer.embed_texts([c["description"] for c in criteria])
         assert len(crit_embeddings) == len(criteria)
 
     def test_result_is_deterministic(self):
@@ -247,13 +245,11 @@ class TestFullPipeline:
         data = json.loads(CRITERIA_PATH.read_text(encoding="utf-8"))
         criteria = data["criteria"]
         chunks = chunk_text(self.SAMPLE_TEXT, chunk_size=500, overlap=50)
-        provider = EmbeddingProvider(model_name="mock-model")
+        scorer = OrdinanceScorer(criteria=criteria, model_name="mock-model")
 
         # Embed once and reuse: model mock is stateful, so we capture embeddings.
-        doc_embs = provider.embed_texts(chunks)
-        crit_embs = provider.embed_texts([c["description"] for c in criteria])
-
-        scorer = OrdinanceScorer(criteria=criteria)
+        doc_embs = scorer.embed_texts(chunks)
+        crit_embs = scorer.embed_texts([c["description"] for c in criteria])
         r1 = scorer.score(doc_chunks=chunks, doc_embeddings=doc_embs,
                           crit_embeddings=crit_embs, top_k=1)
         r2 = scorer.score(doc_chunks=chunks, doc_embeddings=doc_embs,
@@ -315,7 +311,7 @@ class TestRealSamplePdf:
 
     @pytest.fixture(scope="class")
     def extracted_text(self):
-        from app.utils.pdf_parser import extract_text_from_pdf
+        from app.utils import extract_text_from_pdf
         with SAMPLE_PDF.open("rb") as fh:
             return extract_text_from_pdf(fh)
 

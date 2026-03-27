@@ -1,9 +1,7 @@
 import streamlit as st
 import json
-from app.utils.pdf_parser import extract_text_from_pdf
-from app.utils.text_splitter import chunk_text
-from app.analysis.embeddings import EmbeddingProvider
-from app.analysis.scorer import OrdinanceScorer
+from app.scorer import OrdinanceScorer
+from app.utils import chunk_text, extract_text_from_pdf
 from pathlib import Path
 import datetime
 
@@ -21,11 +19,11 @@ top_k = st.sidebar.number_input("Top excerpts per criterion", min_value=1, max_v
 
 uploaded_file = st.file_uploader("Upload ordinance PDF", type=["pdf"]) 
 
-criteria_path = Path("app/data/criteria.json")
+criteria_path = Path("app/criteria.json")
 with open(criteria_path, "r", encoding="utf-8") as fh:
     criteria = json.load(fh)
 
-st.sidebar.markdown(f"Loaded {len(criteria['criteria'])} criteria from app/data/criteria.json")
+st.sidebar.markdown(f"Loaded {len(criteria['criteria'])} criteria from app/criteria.json")
 
 if uploaded_file is not None:
     with st.spinner("Extracting text from PDF..."):
@@ -44,16 +42,13 @@ if uploaded_file is not None:
     chunks = chunk_text(raw_text, chunk_size=chunk_size, overlap=chunk_overlap)
     st.success(f"Split into {len(chunks)} chunks (size ~{chunk_size})")
 
-    # Embeddings provider (local-only)
-    provider = EmbeddingProvider(model_name=model_name)
+    scorer = OrdinanceScorer(criteria=criteria["criteria"], model_name=model_name)
 
     if st.button("Run semantic scoring"):
         with st.spinner("Embedding document and criteria..."):
-            doc_embeddings = provider.embed_texts(chunks)
+            doc_embeddings = scorer.embed_texts(chunks)
             crit_texts = [c["description"] for c in criteria["criteria"]]
-            crit_embeddings = provider.embed_texts(crit_texts)
-
-        scorer = OrdinanceScorer(criteria=criteria["criteria"])
+            crit_embeddings = scorer.embed_texts(crit_texts)
         results = scorer.score(doc_chunks=chunks, doc_embeddings=doc_embeddings,
                                crit_embeddings=crit_embeddings, top_k=top_k)
 

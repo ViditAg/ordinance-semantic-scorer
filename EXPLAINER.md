@@ -221,10 +221,9 @@ pytest -k scorer   # run only tests whose name contains "scorer"
 tests/
 ├── conftest.py                  # shared fixtures (mock model, mock PDF, criteria)
 ├── unit/
-│   ├── test_text_splitter.py    # chunk_text() behaviour and edge cases
-│   ├── test_pdf_parser.py       # extract_text_from_pdf() with mocked pdfplumber
-│   ├── test_embeddings.py       # cosine_similarity() and EmbeddingProvider
-│   └── test_scorer.py           # OrdinanceScorer scoring logic and weight math
+│   ├── test_utils.py            # chunk_text() and extract_text_from_pdf() (mocked pdfplumber)
+│   └── test_scorer.py           # OrdinanceScorer: _sim_to_score, _cosine_similarities_array,
+│                                # weights, score(), embed_texts() (mocked SentenceTransformer)
 └── integration/
     └── test_pipeline.py         # end-to-end pipeline + criteria.json integrity
 ```
@@ -237,7 +236,7 @@ tests/
 ```bash
 python score_samples.py \
   --sample-dir sample \
-  --criteria app/data/criteria.json \
+  --criteria app/criteria.json \
   --model all-MiniLM-L6-v2 \
   --chunk-size 2000 \
   --chunk-overlap 200 \
@@ -367,7 +366,7 @@ Evidence excerpts show the actual text from your ordinance that matches each cri
 
 ### For Developers
 
-1. **Customize Criteria**: Edit `app/data/criteria.json` to add/modify criteria
+1. **Customize Criteria**: Edit `app/criteria.json` to add/modify criteria
 2. **Adjust Weights**: Change weights based on local priorities
 3. **Experiment with Models**: Try different SentenceTransformer models
 4. **Tune Chunking**: Adjust chunk size/overlap for your document types
@@ -438,7 +437,7 @@ Evidence excerpts show the actual text from your ordinance that matches each cri
 
 ### Customizing Criteria
 
-Edit `app/data/criteria.json` to:
+Edit `app/criteria.json` to:
 - Add new criteria
 - Modify descriptions
 - Adjust weights
@@ -500,14 +499,9 @@ The JSON output can be:
 ```
 ordinance-semantic-scorer/
 ├── app/
-│   ├── analysis/
-│   │   ├── embeddings.py      # SentenceTransformer wrapper
-│   │   └── scorer.py           # Scoring logic
-│   ├── data/
-│   │   └── criteria.json       # 29 dark sky criteria
-│   └── utils/
-│       ├── pdf_parser.py        # PDF extraction
-│       └── text_splitter.py     # Text chunking
+│   ├── scorer.py               # OrdinanceScorer: embeddings + cosine batching + scoring
+│   ├── utils.py                # PDF extraction and text chunking
+│   └── criteria.json           # 29 dark sky criteria
 ├── score_samples.py            # CLI batch scorer
 ├── create_venv.sh              # venv setup helper
 └── streamlit_app.py            # Web interface
