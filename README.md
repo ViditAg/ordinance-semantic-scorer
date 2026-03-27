@@ -35,11 +35,9 @@ Running tests
 
 Files of interest
 - streamlit_app.py — Streamlit UI and orchestration
-- app/utils/pdf_parser.py — PDF -> text
-- app/utils/text_splitter.py — chunking
-- app/analysis/embeddings.py — local embedding provider (Sentence-Transformers)
-- app/analysis/scorer.py — scoring logic
-- app/data/criteria.json — dark sky ordinance evaluation criteria
+- app/utils.py — PDF extraction and text chunking
+- app/scorer.py — local embeddings (Sentence-Transformers) and scoring logic
+- app/criteria.json — dark sky ordinance evaluation criteria
 
 Design notes
 - The scoring method is semantic similarity: for each criterion we compute the highest cosine similarity between its description and any document chunk, normalize to 0–100, apply criterion weights, and combine.
@@ -64,7 +62,7 @@ Design notes
 5. **Manual Review**: Use tool as a guide, but always do manual review
 
 ## For Developers
-1. **Customize Criteria**: Edit `app/data/criteria.json` to add/modify criteria
+1. **Customize Criteria**: Edit `app/criteria.json` to add/modify criteria
 2. **Adjust Weights**: Change weights based on local priorities
 3. **Experiment with Models**: Try different SentenceTransformer models
 4. **Tune Chunking**: Adjust chunk size/overlap for your document types
