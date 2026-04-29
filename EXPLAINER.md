@@ -175,10 +175,8 @@ Overall score: (153 + 105 + 60) / 4.3 = 74.0
 
 1. **Upload PDF**: Click "Upload ordinance PDF" and select your ordinance file
 2. **Adjust Settings** (optional):
-   - **Model**: Choose SentenceTransformer model (default: all-MiniLM-L6-v2)
-   - **Chunk Size**: Text chunk size in characters (default: 2000)
-   - **Chunk Overlap**: Overlap between chunks (default: 200)
    - **Top Excerpts**: Number of evidence excerpts per criterion (default: 1)
+   - Embedding model and chunk size/overlap are **fixed in code** (`app/defaults.py`, `app/chunking_presets.py`) — not editable in the UI
 3. **Run Analysis**: Click "Run semantic scoring"
 4. **Review Results**:
    - Overall score at the top
@@ -219,13 +217,17 @@ pytest -k scorer   # run only tests whose name contains "scorer"
 **Test layout:**
 ```
 tests/
-├── conftest.py                  # shared fixtures (mock model, mock PDF, criteria)
+├── conftest.py                  # shared fixtures (mock model, criteria)
 ├── unit/
-│   ├── test_utils.py            # chunk_text() and extract_text_from_pdf() (mocked pdfplumber)
-│   └── test_scorer.py           # OrdinanceScorer: _sim_to_score, _cosine_similarities_array,
-│                                # weights, score(), embed_texts() (mocked SentenceTransformer)
+│   ├── test_utils.py            # chunk_text, extract_text_from_pdf, cosine_similarities_array,
+│                                # similarity_to_score (pdfplumber mocked where needed)
+│   ├── test_scorer.py           # OrdinanceScorer: weights, score(), embed_texts() (mocked model)
+│   ├── test_stability.py        # chunk sweep helpers + neighbor variance
+│   ├── test_chunking_presets.py # named chunking profiles + defaults
+│   └── test_defaults.py         # app.defaults re-exports + model string
 └── integration/
-    └── test_pipeline.py         # end-to-end pipeline + criteria.json integrity
+    ├── test_pipeline.py         # end-to-end pipeline + criteria.json integrity
+    └── test_streamlit_app.py    # Streamlit AppTest smoke (initial page render)
 ```
 
 ---
@@ -465,11 +467,17 @@ The JSON output can be:
 ```
 ordinance-semantic-scorer/
 ├── app/
+│   ├── defaults.py              # Fixed embedding model id; re-exports chunk defaults
+│   ├── chunking_presets.py     # Chunk size/overlap defaults (named presets for scripts)
 │   ├── scorer.py               # OrdinanceScorer: embeddings + cosine batching + scoring
-│   ├── utils.py                # PDF extraction and text chunking
+│   ├── stability.py            # Chunk (size, overlap) grid sweep + neighbor variance
+│   ├── utils.py                # PDF extraction, chunking, similarity helpers
 │   └── criteria.json           # 29 dark sky criteria
 ├── create_venv.sh              # venv setup helper
-└── streamlit_app.py            # Web interface
+├── scripts/
+│   └── calibrate.py            # Local chunk sweep → report.html + CSV + matplotlib figures
+├── requirements-calibration.txt  # optional matplotlib for calibrate.py
+└── streamlit_app.py            # Web interface (chunking fixed via chunking_presets.py)
 ```
 
 ---

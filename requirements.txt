@@ -1,10 +1,80 @@
-streamlit>=1.20
-pdfplumber>=0.7.5
-sentence-transformers>=2.2.2
-scikit-learn>=1.2.2
-numpy>=1.24
-tqdm>=4.64.0
-
-# Development / testing
-pytest>=7.4
-pytest-mock>=3.12
+# Full dependency lock (direct + transitive).
+#
+# Direct packages (also pinned transitively below):
+#   streamlit==1.50.0  pdfplumber==0.11.4  sentence-transformers==2.7.0
+#   numpy==1.26.4  tqdm==4.66.1  pytest==7.4.4
+#
+# Regenerate after intentional upgrades:
+#   python3 -m venv .tmp-lock && .tmp-lock/bin/pip install -U pip
+#   .tmp-lock/bin/pip install streamlit==1.50.0 pdfplumber==0.11.4 sentence-transformers==2.7.0 numpy==1.26.4 tqdm==4.66.1 pytest==7.4.4
+#   .tmp-lock/bin/pip freeze > requirements.txt
+#
+# Generated from: Python 3.9.6, macOS (pip resolved torch/transformers stack below).
+# On Linux/Windows, if install fails, recreate the venv on that OS and run the same
+# three-line recipe so torch and other wheels match the platform, then commit the new freeze.
+altair==5.5.0
+attrs==26.1.0
+blinker==1.9.0
+cachetools==6.2.6
+certifi==2026.2.25
+cffi==2.0.0
+charset-normalizer==3.4.7
+click==8.1.8
+cryptography==46.0.7
+exceptiongroup==1.3.1
+filelock==3.19.1
+fsspec==2025.10.0
+gitdb==4.0.12
+GitPython==3.1.46
+hf-xet==1.4.3
+huggingface_hub==0.36.2
+idna==3.11
+iniconfig==2.1.0
+Jinja2==3.1.6
+joblib==1.5.3
+jsonschema==4.25.1
+jsonschema-specifications==2025.9.1
+MarkupSafe==3.0.3
+mpmath==1.3.0
+narwhals==2.19.0
+networkx==3.2.1
+numpy==1.26.4
+packaging==25.0
+pandas==2.3.3
+pdfminer.six==20231228
+pdfplumber==0.11.4
+pillow==11.3.0
+pluggy==1.6.0
+protobuf==6.33.6
+pyarrow==21.0.0
+pycparser==2.23
+pydeck==0.9.1
+pypdfium2==5.7.0
+pytest==7.4.4
+python-dateutil==2.9.0.post0
+pytz==2026.1.post1
+PyYAML==6.0.3
+referencing==0.36.2
+regex==2026.1.15
+requests==2.32.5
+rpds-py==0.27.1
+safetensors==0.7.0
+scikit-learn==1.6.1
+scipy==1.13.1
+sentence-transformers==2.7.0
+six==1.17.0
+smmap==5.0.3
+streamlit==1.50.0
+sympy==1.14.0
+tenacity==9.1.2
+threadpoolctl==3.6.0
+tokenizers==0.22.2
+toml==0.10.2
+tomli==2.4.1
+torch==2.8.0
+tornado==6.5.5
+tqdm==4.66.1
+transformers==4.57.6
+typing_extensions==4.15.0
+tzdata==2026.1
+urllib3==2.6.3

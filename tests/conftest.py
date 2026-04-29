@@ -1,12 +1,22 @@
 """
 Shared pytest fixtures for the ordinance-semantic-scorer test suite.
 
-Design notes
-------------
-* Heavy dependencies (SentenceTransformer, pdfplumber) are mocked so that the
-  unit tests remain fast and do not require a model download or a real PDF.
-* Integration tests re-use the same fixtures but layer real criteria.json data
-  on top of them.
+**Design goals**
+
+* **Speed** — Real ``SentenceTransformer`` weights are large and download from the
+  internet on first use. Patching ``app.scorer._get_sentence_transformer`` keeps
+  unit tests milliseconds-fast and fully offline.
+* **Determinism** — Fake embeddings use NumPy RNGs with fixed seeds so cosine
+  arithmetic and ordering assertions are reproducible across machines.
+* **Parity with production paths** — Fixtures still exercise the real function
+  signatures and data shapes the Streamlit app uses; only the heavyweight backends
+  are swapped for fakes.
+
+**How to use this module**
+
+Import fixtures by name in test signatures (``criteria_data``, ``minimal_criteria``,
+``mock_sentence_transformer``, etc.). Pytest discovers them automatically because
+``conftest.py`` lives under ``tests/``.
 """
 from __future__ import annotations
 
@@ -98,32 +108,3 @@ def mock_sentence_transformer():
         return_value=mock_model,
     ):
         yield mock_model
-
-
-# ---------------------------------------------------------------------------
-# PDF helpers
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture()
-def mock_pdfplumber_open():
-    """
-    Context-manager factory.  Call ``mock_pdfplumber_open(page_texts)`` where
-    *page_texts* is a list of strings (or ``None``) representing each page.
-    """
-    def _factory(page_texts: list[str | None]):
-        mock_pages = []
-        for text in page_texts:
-            page = MagicMock()
-            page.extract_text.return_value = text
-            mock_pages.append(page)
-
-        mock_pdf = MagicMock()
-        mock_pdf.pages = mock_pages
-        mock_pdf.__enter__ = MagicMock(return_value=mock_pdf)
-        mock_pdf.__exit__ = MagicMock(return_value=False)
-
-        with patch("pdfplumber.open", return_value=mock_pdf) as patched:
-            yield patched, mock_pdf
-
-    return _factory

@@ -1,30 +1,61 @@
 """
-Unit tests for app.utils
-========================
+Unit tests for ``app.utils`` — PDF text extraction, character chunking, and
+embedding geometry helpers used by the scorer.
 
-* ``chunk_text`` — splitting behaviour and validation.
-* ``extract_text_from_pdf`` — pdfplumber is mocked; no real PDF required.
+**Why mock pdfplumber?**
+
+``extract_text_from_pdf`` only orchestrates ``pdfplumber.open`` and per-page
+``extract_text`` calls. By returning synthetic ``MagicMock`` pages we can assert
+joining behaviour, blank-page skipping, and separators **without** binary PDF
+fixtures for every edge case.
+
+**chunk_text coverage**
+
+We validate invariants (empty input, overlap rules, CRLF normalization) and a few
+behavioural properties (coverage of long strings, overlap between windows) that
+protect the downstream embedding step from surprising segmentation.
 """
 from __future__ import annotations
 
 import io
+import math
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 
-from app.utils import chunk_text, extract_text_from_pdf
+from app.utils import (
+    chunk_text,
+    cosine_similarities_array,
+    extract_text_from_pdf,
+    similarity_to_score,
+)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 def _fake_file():
-    """Return a minimal binary file-like object (content doesn't matter because
-    pdfplumber.open is fully mocked)."""
+    """
+    Return a tiny in-memory ``BytesIO`` standing in for an uploaded PDF.
+
+    The bytes are not parsed because every test patches ``pdfplumber.open``; the
+    object only needs to satisfy the "file-like" contract ``pdfplumber`` expects.
+    """
     return io.BytesIO(b"%PDF-1.4 fake")
 
+
 def _build_mock_pdf(page_texts: list):
-    """Build a mock pdfplumber PDF whose pages return *page_texts* in order."""
+    """
+    Construct a context-managed fake PDF whose ``pages`` mirror *page_texts*.
+
+    **Args:**
+        page_texts: Ordered ``extract_text()`` return values, one per mock page.
+
+    **Returns:**
+        A ``MagicMock`` configured so ``with pdfplumber.open(...) as pdf`` returns
+        the same object exposing ``pdf.pages`` and per-page ``extract_text``.
+    """
     # Initialize an empty list to store the pages
     pages = []
     # Iterate through the page texts
@@ -52,17 +83,12 @@ def _build_mock_pdf(page_texts: list):
 # ---------------------------------------------------------------------------
 
 class TestBasicExtraction:
-    """Test the basic extraction of text from a PDF."""
+    """Happy-path ``extract_text_from_pdf`` behaviour with mocked pdfplumber."""
+
     def test_single_page_returns_page_text(self):
         """
-        Test that a single page returns the page text.
-        
-        Args:
-            mock_pdf: The mock PDF object.
-        Returns:
-            The extracted text from the PDF.
-        Raises:
-            AssertionError: If the extracted text does not match the expected text.
+        A PDF whose first (only) page returns a short string should round-trip that
+        string unchanged through ``extract_text_from_pdf``.
         """
         # Build a mock PDF with a single page containing the text "Hello ordinance."
         mock_pdf = _build_mock_pdf(["Hello ordinance."])
@@ -75,14 +101,8 @@ class TestBasicExtraction:
 
     def test_multiple_pages_joined_with_double_newline(self):
         """
-        Test that multiple pages are joined with double newlines.
-        
-        Args:
-            mock_pdf: The mock PDF object.
-        Returns:
-            The extracted text from the PDF.
-        Raises:
-            AssertionError: If the extracted text does not match the expected text.
+        Multi-page PDFs must join non-empty page texts with ``\\n\\n`` so chunkers
+        see a weak visual break between original pages.
         """
         # Build a mock PDF with three pages containing the text "Page one.", "Page two.", and "Page three."
         mock_pdf = _build_mock_pdf(["Page one.", "Page two.", "Page three."])
@@ -94,16 +114,7 @@ class TestBasicExtraction:
         assert result == "Page one.\n\nPage two.\n\nPage three."
 
     def test_return_type_is_str(self):
-        """
-        Test that the return type is a string.
-        
-        Args:
-            mock_pdf: The mock PDF object.
-        Returns:
-            The extracted text from the PDF.
-        Raises:
-            AssertionError: If the extracted text does not match the expected text.
-        """
+        """Contract check: successful extraction always returns a ``str``, never ``None``."""
         # Build a mock PDF with a single page containing the text "Some text."
         mock_pdf = _build_mock_pdf(["Some text."])
         # Patch the pdfplumber.open function to return the mock PDF
@@ -120,18 +131,10 @@ class TestBasicExtraction:
 
 
 class TestEmptyAndNonePages:
-    """Test that empty and None pages are skipped."""
+    """``extract_text_from_pdf`` must tolerate empty and falsy page payloads."""
+
     def test_empty_pdf_no_pages_returns_empty_string(self):
-        """
-        Test that an empty PDF returns an empty string.
-        
-        Args:
-            mock_pdf: The mock PDF object.
-        Returns:
-            The extracted text from the PDF.
-        Raises:
-            AssertionError: If the extracted text does not match the expected text.
-        """
+        """Zero pages → join of an empty list → ``""`` (not ``None``)."""
         # Build a mock PDF with no pages
         mock_pdf = _build_mock_pdf([])
         # Patch the pdfplumber.open function to return the mock PDF
@@ -148,14 +151,13 @@ class TestEmptyAndNonePages:
     ])
     def test_blank_pages_are_skipped(self, page_values, label):
         """
-        Test that pages whose extract_text() returns None or an empty string
-        are silently dropped, whether it is one page or many.
+        Pages whose ``extract_text()`` returns ``None`` or ``""`` contribute nothing.
 
-        Args:
-            page_values: List of per-page return values to feed to the mock.
-            label: Human-readable identifier shown in the test name.
-        Raises:
-            AssertionError: If the extracted text is not an empty string.
+        **Parametrized cases:** single blank page, single empty string, or multiple
+        ``None`` pages — all should collapse to an empty aggregate string.
+
+        The ``label`` parameter exists only to give each parametrized case a stable
+        pytest node name for CI logs.
         """
         # Build a mock PDF whose pages return the supplied values
         mock_pdf = _build_mock_pdf(page_values)
@@ -168,14 +170,8 @@ class TestEmptyAndNonePages:
 
     def test_mixed_none_and_text_pages_skips_none(self):
         """
-        Test that mixed None and text pages are skipped.
-        
-        Args:
-            mock_pdf: The mock PDF object.
-        Returns:
-            The extracted text from the PDF.
-        Raises:
-            AssertionError: If the extracted text does not match the expected text.
+        Interleaved ``None`` pages should disappear while real text pages stay in
+        order, still separated by the double-newline convention.
         """
         # Build a mock PDF with four pages containing None, "Real text.", None, and "More text."
         mock_pdf = _build_mock_pdf([None, "Real text.", None, "More text."])
@@ -192,18 +188,10 @@ class TestEmptyAndNonePages:
 
 
 class TestSeparator:
-    """Test the separator behaviour between pages."""
+    """Explicit assertions on the ``\\n\\n`` join strategy between pages."""
+
     def test_double_newline_separator_between_pages(self):
-        """
-        Test that the separator between pages is a double newline.
-        
-        Args:
-            mock_pdf: The mock PDF object.
-        Returns:
-            The extracted text from the PDF.
-        Raises:
-            AssertionError: If the extracted text does not match the expected text.
-        """
+        """Two non-empty pages must contain a blank-line gap (``\\n\\n``) between them."""
         # Build a mock PDF with two pages containing the text "A" and "B"
         mock_pdf = _build_mock_pdf(["A", "B"])
         # Patch the pdfplumber.open function to return the mock PDF
@@ -216,16 +204,7 @@ class TestSeparator:
         assert result.index("A") < result.index("B")
 
     def test_page_text_content_preserved_exactly(self):
-        """
-        Test that the page text content is preserved exactly.
-        
-        Args:
-            mock_pdf: The mock PDF object.
-        Returns:
-            The extracted text from the PDF.
-        Raises:
-            AssertionError: If the extracted text does not match the expected text.
-        """
+        """Internal newlines inside a page must not be stripped or altered."""
         # Build a mock PDF with a single page containing the text "Article 1: All lights shall be shielded.\nSection 2: Uplight prohibited."
         text = "Article 1: All lights shall be shielded.\nSection 2: Uplight prohibited."
         mock_pdf = _build_mock_pdf([text])
@@ -244,7 +223,8 @@ class TestSeparator:
 
 
 class TestInputValidation:
-    """Test that the input validation works as expected."""
+    """Guard rails on ``chunk_text`` hyperparameters."""
+
     @pytest.mark.parametrize(
         "chunk_size",
         [0, -1]
@@ -253,16 +233,7 @@ class TestInputValidation:
         self,
         chunk_size: int
     ):
-        """
-        Test that a zero or negative chunk size raises a ValueError.
-        
-        Args:
-            chunk_size: The chunk size to test.
-        Returns:
-            None
-        Raises:
-            ValueError: If the chunk size is zero or negative.
-        """
+        """Non-positive ``chunk_size`` is invalid because windows cannot advance."""
         # Call the chunk_text function with the chunk size and expect a ValueError
         with pytest.raises(
             ValueError,
@@ -280,13 +251,9 @@ class TestInputValidation:
         label: str
     ):
         """
-        Test that an overlap equal to or greater than chunk_size raises a ValueError.
+        ``overlap >= chunk_size`` would stall or walk backwards; reject early.
 
-        Args:
-            overlap: The overlap value to test.
-            label: The label of the test.
-        Raises:
-            ValueError: If overlap >= chunk_size.
+        ``label`` distinguishes parametrized variants in pytest output only.
         """
         with pytest.raises(
             ValueError,
@@ -306,6 +273,8 @@ class TestInputValidation:
 
 
 class TestEdgeCases:
+    """Boundary conditions for ``chunk_text`` (empty body, whitespace-only)."""
+
     @pytest.mark.parametrize(
         "text",
         ["", "   \n\t  "]
@@ -314,22 +283,11 @@ class TestEdgeCases:
         self,
         text: str
     ):
-        """
-        Test that an empty string returns an empty list.
-        
-        Args:
-            text: The text to test.
-        Raises:
-            AssertionError: If the result is not an empty list.
-        """
+        """After strip, nothing to embed → no chunks (empty list, not ``[""]``)."""
         assert chunk_text(text) == []
 
     def test_text_shorter_than_chunk_size_gives_single_chunk(self):
-        """
-        Test that a text shorter than the chunk size gives a single chunk.
-        Raises:
-            AssertionError: If the result is not a single chunk.
-        """
+        """Short documents should produce exactly one window spanning the full text."""
         # Call the chunk_text function with the text and chunk size and overlap
         text = "Short text."
         # Call the chunk_text function with the text and chunk size and overlap
@@ -345,9 +303,8 @@ class TestEdgeCases:
 
     def test_text_exactly_chunk_size_gives_single_chunk(self):
         """
-        Test that a text exactly the size of the chunk size gives a single chunk.
-        Raises:
-            AssertionError: If the result is not a single chunk.
+        When ``len(text) == chunk_size`` the first window already reaches EOF, so the
+        ``while`` loop should terminate after one iteration (no zero-length tail).
         """
         # Initialize the text to "a" repeated 50 times
         text = "a" * 50
@@ -365,13 +322,10 @@ class TestEdgeCases:
 
 
 class TestBasicChunking:
-    """Test that the basic chunking behaviour works as expected."""
+    """Smoke tests that long inputs actually fan out into multiple windows."""
+
     def test_produces_multiple_chunks_for_long_text(self):
-        """
-        Test that a long text produces multiple chunks.
-        Raises:
-            AssertionError: If the result is not multiple chunks.
-        """
+        """A 1000-character run with a 200-char window must create >1 chunk."""
         # Initialize the text to "x" repeated 1000 times
         text = "x" * 1000
         # Call the chunk_text function with the text and chunk size and overlap
@@ -383,9 +337,8 @@ class TestBasicChunking:
 
     def test_all_chunks_at_most_chunk_size_characters(self):
         """
-        Test that all chunks are at most the chunk size characters.
-        Raises:
-            AssertionError: If the result is not at most the chunk size characters.
+        **Post-strip upper bound:** each slice is at most ``chunk_size`` characters
+        before ``.strip()``; stripping only removes edges, never grows the string.
         """
         # Initialize the text to "word " repeated 500 times
         text = "word " * 500  # 2500 chars
@@ -397,11 +350,7 @@ class TestBasicChunking:
             assert len(chunk) <= 300
 
     def test_no_empty_chunks_in_output(self):
-        """
-        Test that no empty chunks are in the output.
-        Raises:
-            AssertionError: If the result is not no empty chunks.
-        """
+        """Every emitted chunk should contain non-whitespace payload."""
         # Initialize the text to "hello world " repeated 200 times
         text = "hello world " * 200
         # Call the chunk_text function with the text and chunk size and overlap
@@ -413,9 +362,8 @@ class TestBasicChunking:
 
     def test_chunks_cover_full_text(self):
         """
-        Test that concatenating all chunk starts must span the entire input.
-        Raises:
-            AssertionError: If the result is not the entire input.
+        Loose **coverage** heuristic: first chunk aligns with the document start and
+        the last chunk aligns with the tail (embedders rely on this intuition).
         """
         # Initialize the text to "abcdefghij" repeated 100 times
         text = "abcdefghij" * 100  # 1000 chars
@@ -438,12 +386,12 @@ class TestBasicChunking:
 
 
 class TestOverlap:
-    """Test that the overlap behaviour works as expected."""
+    """Properties that only make sense when ``overlap > 0``."""
+
     def test_consecutive_chunks_share_overlap_content(self):
         """
-        Test that the tail of chunk N should appear at the start of chunk N+1.
-        Raises:
-            AssertionError: If the result is not the entire input.
+        With generous overlap, some substring from the end of chunk *i* should recur
+        inside chunk *i+1* (exact equality can be perturbed by ``strip()``).
         """
         # Use a large overlap relative to chunk_size to make it obvious.
         text = "abcdefghijklmnopqrstuvwxyz" * 20  # 520 chars
@@ -462,9 +410,9 @@ class TestOverlap:
             assert tail[:10] in chunks[i + 1] or head[:10] in chunks[i]
 
     def test_zero_overlap_no_repeated_content(self):
-        """Test that with overlap=0 every character appears in exactly one chunk.
-        Raises:
-            AssertionError: If the result is not the entire input.
+        """
+        ``overlap=0`` turns the splitter into a partition: joining chunks rebuilds
+        the original string with no duplicated characters across chunk boundaries.
         """
         # Initialize the text to "abcdefghijklmnopqrstuvwxyz" repeated 4 times
         text = "abcdefghijklmnopqrstuvwxyz" * 4  # 104 chars
@@ -482,13 +430,10 @@ class TestOverlap:
 
 
 class TestLineEndingNormalisation:
-    """Test that the line ending normalisation works as expected."""
+    """``chunk_text`` pre-processes ``\\r\\n`` so excerpts look Unix-native."""
+
     def test_crlf_converted_to_lf(self):
-        """
-        Test that CRLF is converted to LF.
-        Raises:
-            AssertionError: If the result is not CRLF converted to LF.
-        """
+        """Windows-style terminators must not survive inside returned chunks."""
         # Initialize the text to "line one\r\nline two\r\nline three"
         text = "line one\r\nline two\r\nline three"
         # Call the chunk_text function with the text and chunk size and overlap
@@ -499,11 +444,7 @@ class TestLineEndingNormalisation:
             assert "\r" not in chunk
 
     def test_mixed_line_endings_normalised(self):
-        """
-        Test that mixed line endings are normalised.
-        Raises:
-            AssertionError: If the result is not mixed line endings normalised.
-        """
+        """Mixed ``\\r\\n`` and bare ``\\n`` still yield a carriage-return-free join."""
         # Initialize the text to "a\r\nb\nc\r\nd"
         text = "a\r\nb\nc\r\nd"
         # Call the chunk_text function with the text and chunk size and overlap
@@ -512,3 +453,109 @@ class TestLineEndingNormalisation:
         joined = "".join(chunks)
         # Assert that there is no carriage-return in the output
         assert "\r" not in joined
+
+
+# ---------------------------------------------------------------------------
+# similarity_to_score & cosine_similarities_array (scoring geometry)
+# ---------------------------------------------------------------------------
+
+
+def _unit(v: list[float]) -> list[float]:
+    a = np.array(v, dtype=float)
+    n = np.linalg.norm(a)
+    return (a / n).tolist() if n > 0 else v
+
+
+def _orthogonal_basis(dim: int, n: int) -> list[list[float]]:
+    assert n <= dim
+    eye = np.eye(dim)
+    return [eye[i].tolist() for i in range(n)]
+
+
+def _manual_row_cosines(vec: list[float], matrix: list[list[float]]) -> list[float]:
+    v = np.array(vec, dtype=float)
+    vn = np.linalg.norm(v)
+    out = []
+    for row in matrix:
+        r = np.array(row, dtype=float)
+        rn = np.linalg.norm(r)
+        denom = vn * rn
+        if denom == 0:
+            out.append(float("nan"))
+        else:
+            out.append(float(np.dot(v, r) / denom))
+    return out
+
+
+class TestSimilarityToScore:
+    def test_zero_similarity_gives_zero_score(self):
+        assert similarity_to_score(0.0) == 0.0
+
+    def test_one_similarity_gives_hundred(self):
+        assert similarity_to_score(1.0) == pytest.approx(100.0)
+
+    def test_half_similarity_gives_fifty(self):
+        assert similarity_to_score(0.5) == pytest.approx(50.0)
+
+    def test_negative_similarity_clamped_to_zero(self):
+        assert similarity_to_score(-0.5) == 0.0
+        assert similarity_to_score(-1.0) == 0.0
+
+    def test_arbitrary_positive_value(self):
+        sim = 0.73
+        assert similarity_to_score(sim) == pytest.approx(73.0)
+
+    def test_result_is_rounded_to_two_decimal_places(self):
+        result = similarity_to_score(0.12345)
+        assert result == round(result, 2)
+
+
+class TestCosineSimilaritiesArray:
+    def test_identical_vector_gives_one(self):
+        v = [1.0, 0.0, 0.0]
+        M = [[1.0, 0.0, 0.0]]
+        sims = cosine_similarities_array(v, M)
+        assert sims[0] == pytest.approx(1.0, abs=1e-6)
+
+    def test_orthogonal_vector_gives_zero(self):
+        v = [1.0, 0.0, 0.0]
+        M = [[0.0, 1.0, 0.0]]
+        sims = cosine_similarities_array(v, M)
+        assert sims[0] == pytest.approx(0.0, abs=1e-6)
+
+    def test_opposite_vector_gives_minus_one(self):
+        v = [1.0, 0.0]
+        M = [[-1.0, 0.0]]
+        sims = cosine_similarities_array(v, M)
+        assert sims[0] == pytest.approx(-1.0, abs=1e-6)
+
+    def test_zero_vector_in_matrix_gets_safe_denominator(self):
+        v = [1.0, 0.0]
+        M = [[0.0, 0.0], [1.0, 0.0]]
+        sims = cosine_similarities_array(v, M)
+        assert not any(math.isnan(s) for s in sims.tolist())
+
+    def test_multiple_rows_computed_correctly(self):
+        v = [1.0, 0.0, 0.0]
+        M = _orthogonal_basis(3, 3)
+        sims = cosine_similarities_array(v, M)
+        assert sims[0] == pytest.approx(1.0, abs=1e-6)
+        assert sims[1] == pytest.approx(0.0, abs=1e-6)
+        assert sims[2] == pytest.approx(0.0, abs=1e-6)
+
+    def test_returns_numpy_array(self):
+        v = [1.0, 0.0]
+        M = [[1.0, 0.0]]
+        result = cosine_similarities_array(v, M)
+        assert isinstance(result, np.ndarray)
+
+    def test_matches_per_row_cosine_formula_nonzero_rows(self):
+        v = _unit([1.0, 2.0, -0.5])
+        M = [
+            _unit([0.1, -3.0, 2.0]),
+            _unit([2.0, 2.0, 2.0]),
+        ]
+        sims = cosine_similarities_array(v, M)
+        expected = _manual_row_cosines(v, M)
+        for got, exp in zip(sims.tolist(), expected):
+            assert got == pytest.approx(exp, abs=1e-6)

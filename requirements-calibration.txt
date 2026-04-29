@@ -1,0 +1,4 @@
+# Optional: local benchmarking / HTML reports (scripts/calibrate.py).
+# Install on top of the main lockfile:
+#   pip install -r requirements.txt -r requirements-calibration.txt
+matplotlib==3.9.4
