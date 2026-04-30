@@ -38,8 +38,12 @@ class TestAnnotateNeighborStability:
         for r in out:
             assert r["neighbor_score_stdev"] == pytest.approx(0.0, abs=1e-6)
 
-    def test_spike_has_higher_neighbor_stdev_than_plateau(self):
-        """Single high score on a 1×3 size grid — middle cell sees more score swing."""
+    def test_spike_middle_has_lower_neighbor_stdev_than_edges(self):
+        """
+        On a 1×3 size grid with a spike at the middle, stdev is taken over the full
+        3-cell window including the center — so the middle cell averages [50, 90, 50]
+        and has lower spread than edge cells, which only see [50, 90].
+        """
         rows = [
             {"chunk_size": 1500, "overlap": 100, "overall_score": 50.0},
             {"chunk_size": 2000, "overlap": 100, "overall_score": 90.0},
@@ -47,8 +51,9 @@ class TestAnnotateNeighborStability:
         ]
         out = annotate_neighbor_stability(rows)
         by_key = {(r["chunk_size"], r["overlap"]): r["neighbor_score_stdev"] for r in out}
-        assert by_key[(2000, 100)] > by_key[(1500, 100)]
-        assert by_key[(2000, 100)] > by_key[(2500, 100)]
+        assert by_key[(2000, 100)] < by_key[(1500, 100)]
+        assert by_key[(2000, 100)] < by_key[(2500, 100)]
+        assert by_key[(1500, 100)] == pytest.approx(by_key[(2500, 100)])
 
 
 class TestCompositeRankScore:

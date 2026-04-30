@@ -16,6 +16,11 @@ Usage (from repository root, with optional calibration extras installed)::
 
 Defaults for the sweep grid match ``app.chunking_presets`` sweep seeds unless
 you pass ``--chunk-sizes`` / ``--overlaps`` as comma-separated lists.
+
+**Multiple embedding models** — pass ``--models id1,id2`` (comma-separated
+Sentence-Transformers checkpoint ids). Each model gets its own subdirectory
+under ``--out`` (named from the id, with ``/`` replaced). A single model still
+writes files directly into ``--out`` (backwards compatible).
 """
 
 from __future__ import annotations
@@ -26,7 +31,7 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 # Repo root on sys.path when executed as ``python scripts/calibrate.py``
 _REPO = Path(__file__).resolve().parents[1]
@@ -137,6 +142,159 @@ def _plot_hist(df: pd.DataFrame) -> plt.Figure:
     return fig
 
 
+def _model_slug(model_id: str) -> str:
+    safe = model_id.replace("/", "_").replace(":", "_").replace(" ", "_")
+    return safe[:160] if len(safe) > 160 else safe
+
+
+def _resolve_model_names(*, model: Optional[str], models: Optional[str]) -> List[str]:
+    if models and models.strip():
+        return [m.strip() for m in models.split(",") if m.strip()]
+    if model and model.strip():
+        return [model.strip()]
+    return [DEFAULT_SENTENCE_TRANSFORMER_MODEL]
+
+
+def _run_one_model_calibration(
+    *,
+    out: Path,
+    model_name: str,
+    raw: str,
+    criteria: List[Dict[str, Any]],
+    crit_path: Path,
+    chunk_sizes: List[int],
+    overlaps: List[int],
+    pairs_count: int,
+    pdf: Path | None,
+    text_file: Path | None,
+    stability_weight: float,
+    top_k: int,
+) -> None:
+    out.mkdir(parents=True, exist_ok=True)
+    fig_dir = out / "figures"
+    fig_dir.mkdir(exist_ok=True)
+
+    print(f"Model: {model_name}")
+    print(f"Grid: {pairs_count} pairs · chars in doc: {len(raw)}")
+
+    def prog(i: int, tot: int) -> None:
+        pct = 100 * i / tot if tot else 0
+        print(f"\r  [{_model_slug(model_name)}] {i}/{tot} ({pct:.0f}%)", end="", flush=True)
+
+    rows = run_chunk_sweep(
+        raw_text=raw,
+        criteria=criteria,
+        model_name=model_name,
+        chunk_sizes=chunk_sizes,
+        overlaps=overlaps,
+        top_k=top_k,
+        progress=prog,
+    )
+    print()
+
+    for r in rows:
+        r["composite"] = round(
+            composite_rank_score(
+                float(r["overall_score"]),
+                float(r["neighbor_score_stdev"]),
+                stability_weight,
+            ),
+            4,
+        )
+
+    df = pd.DataFrame(rows).sort_values("composite", ascending=False)
+
+    csv_path = out / "summary.csv"
+    df.to_csv(csv_path, index=False)
+
+    meta: Dict[str, Any] = {
+        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "model_name": model_name,
+        "criteria_path": str(crit_path.relative_to(_REPO)),
+        "pdf": str(pdf) if pdf else None,
+        "text_file": str(text_file) if text_file else None,
+        "chunk_sizes": chunk_sizes,
+        "overlaps": overlaps,
+        "num_pairs": pairs_count,
+        "stability_weight": stability_weight,
+        "top_k": top_k,
+        "chars_in_document": len(raw),
+    }
+    (out / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+    heat_path = fig_dir / "heatmap.png"
+    hist_path = fig_dir / "score_histogram.png"
+    scat_path = fig_dir / "scatter_size_vs_score.png"
+    b64_heat = _save_plot_b64(_plot_heatmap(df), heat_path)
+    b64_hist = _save_plot_b64(_plot_hist(df), hist_path)
+    b64_scat = _save_plot_b64(_plot_scatter(df), scat_path)
+
+    best = df.iloc[0]
+    worst = df.iloc[-1]
+    mean_score = float(df["overall_score"].mean())
+    std_score = float(df["overall_score"].std(ddof=0))
+
+    top_html = df.head(15).to_html(index=False, float_format=lambda x: f"{x:.4f}")
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Calibration report</title>
+  <style>
+    body {{ font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; }}
+    h1 {{ color: #1a1a2e; }}
+    .muted {{ color: #555; font-size: 0.95rem; }}
+    img {{ max-width: 100%; height: auto; border: 1px solid #ddd; margin: 1rem 0; }}
+    table.data {{ border-collapse: collapse; width: 100%; font-size: 0.85rem; }}
+    table.data th, table.data td {{ border: 1px solid #ccc; padding: 0.35rem 0.5rem; }}
+  </style>
+</head>
+<body>
+  <h1>Chunk hyperparameter calibration</h1>
+  <p class="muted">Generated {meta["timestamp"]} · model <code>{meta["model_name"]}</code></p>
+  <p>Document length: <strong>{meta["chars_in_document"]}</strong> characters ·
+     grid: <strong>{meta["num_pairs"]}</strong> valid (chunk_size, overlap) pairs.</p>
+  <p>Overall score on grid — min <strong>{df["overall_score"].min():.2f}</strong>,
+     max <strong>{df["overall_score"].max():.2f}</strong>,
+     mean <strong>{mean_score:.2f}</strong>, stdev <strong>{std_score:.2f}</strong>.</p>
+  <p><strong>Top composite</strong> (weight {stability_weight} on neighbor stdev):
+     chunk_size={int(best["chunk_size"])}, overlap={int(best["overlap"])},
+     overall={float(best["overall_score"]):.2f}, composite={float(best["composite"]):.4f}.</p>
+  <p><strong>Lowest composite:</strong> chunk_size={int(worst["chunk_size"])},
+     overlap={int(worst["overlap"])}, overall={float(worst["overall_score"]):.2f}.</p>
+
+  <h2>Heatmap</h2>
+  <p class="muted">Row = overlap, column = chunk size. Missing cells = invalid overlap ≥ size.</p>
+  <img alt="heatmap" src="data:image/png;base64,{b64_heat}"/>
+
+  <h2>Score distribution</h2>
+  <img alt="histogram" src="data:image/png;base64,{b64_hist}"/>
+
+  <h2>Chunk size vs score</h2>
+  <img alt="scatter" src="data:image/png;base64,{b64_scat}"/>
+
+  <h2>Top 15 by composite</h2>
+  {top_html}
+
+  <h2>Files</h2>
+  <ul>
+    <li><code>summary.csv</code> — full results</li>
+    <li><code>meta.json</code> — run configuration</li>
+    <li><code>figures/</code> — same plots as PNG</li>
+  </ul>
+</body>
+</html>
+"""
+    report_path = out / "report.html"
+    report_path.write_text(html, encoding="utf-8")
+
+    print(f"Wrote: {csv_path}")
+    print(f"Wrote: {out / 'meta.json'}")
+    print(f"Wrote: {report_path}")
+    print(f"Wrote: {fig_dir}/*.png")
+
+
 def _plot_scatter(df: pd.DataFrame) -> plt.Figure:
     fig, ax = plt.subplots(figsize=(7, 4))
     sc = ax.scatter(
@@ -184,6 +342,18 @@ def main() -> None:
     p.add_argument("--max-pairs", type=int, default=72, help="Abort if valid grid exceeds this")
     p.add_argument("--stability-weight", type=float, default=1.0, help="Composite score penalty weight")
     p.add_argument("--top-k", type=int, default=1, help="Top excerpts per criterion (passed to scorer)")
+    p.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="Single Sentence-Transformers model id (default: app.defaults.DEFAULT_SENTENCE_TRANSFORMER_MODEL)",
+    )
+    p.add_argument(
+        "--models",
+        type=str,
+        default=None,
+        help="Comma-separated model ids; when set, overrides --model and writes each run to a subfolder",
+    )
     args = p.parse_args()
 
     out = args.out
@@ -191,8 +361,6 @@ def main() -> None:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         out = _REPO / "calibration_reports" / stamp
     out.mkdir(parents=True, exist_ok=True)
-    fig_dir = out / "figures"
-    fig_dir.mkdir(exist_ok=True)
 
     chunk_sizes = (
         _parse_int_list(args.chunk_sizes)
@@ -216,129 +384,30 @@ def main() -> None:
     crit_path = _REPO / "app" / "criteria.json"
     criteria = json.loads(crit_path.read_text(encoding="utf-8"))["criteria"]
 
-    print(f"Model: {DEFAULT_SENTENCE_TRANSFORMER_MODEL}")
-    print(f"Grid: {len(pairs)} pairs · chars in doc: {len(raw)}")
-
-    bar_total = len(pairs)
-    done = [0]
-
-    def prog(i: int, tot: int) -> None:
-        done[0] = i
-        pct = 100 * i / tot if tot else 0
-        print(f"\r  Embedding/scoring {i}/{tot} ({pct:.0f}%)", end="", flush=True)
-
-    rows = run_chunk_sweep(
-        raw_text=raw,
-        criteria=criteria,
-        model_name=DEFAULT_SENTENCE_TRANSFORMER_MODEL,
-        chunk_sizes=chunk_sizes,
-        overlaps=overlaps,
-        top_k=args.top_k,
-        progress=prog,
-    )
-    print()
-
-    for r in rows:
-        r["composite"] = round(
-            composite_rank_score(
-                float(r["overall_score"]),
-                float(r["neighbor_score_stdev"]),
-                args.stability_weight,
-            ),
-            4,
+    model_names = _resolve_model_names(model=args.model, models=args.models)
+    if len(model_names) > 1:
+        (out / "models_run.json").write_text(
+            json.dumps({"models": model_names}, indent=2),
+            encoding="utf-8",
         )
 
-    df = pd.DataFrame(rows).sort_values("composite", ascending=False)
-
-    csv_path = out / "summary.csv"
-    df.to_csv(csv_path, index=False)
-
-    meta: Dict[str, Any] = {
-        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "model_name": DEFAULT_SENTENCE_TRANSFORMER_MODEL,
-        "criteria_path": str(crit_path.relative_to(_REPO)),
-        "pdf": str(args.pdf) if args.pdf else None,
-        "text_file": str(args.text) if args.text else None,
-        "chunk_sizes": chunk_sizes,
-        "overlaps": overlaps,
-        "num_pairs": len(pairs),
-        "stability_weight": args.stability_weight,
-        "top_k": args.top_k,
-        "chars_in_document": len(raw),
-    }
-    (out / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
-
-    heat_path = fig_dir / "heatmap.png"
-    hist_path = fig_dir / "score_histogram.png"
-    scat_path = fig_dir / "scatter_size_vs_score.png"
-    b64_heat = _save_plot_b64(_plot_heatmap(df), heat_path)
-    b64_hist = _save_plot_b64(_plot_hist(df), hist_path)
-    b64_scat = _save_plot_b64(_plot_scatter(df), scat_path)
-
-    best = df.iloc[0]
-    worst = df.iloc[-1]
-    mean_score = float(df["overall_score"].mean())
-    std_score = float(df["overall_score"].std(ddof=0))
-
-    top_html = df.head(15).to_html(index=False, float_format=lambda x: f"{x:.4f}")
-
-    html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"/>
-  <title>Calibration report</title>
-  <style>
-    body {{ font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; }}
-    h1 {{ color: #1a1a2e; }}
-    .muted {{ color: #555; font-size: 0.95rem; }}
-    img {{ max-width: 100%; height: auto; border: 1px solid #ddd; margin: 1rem 0; }}
-    table.data {{ border-collapse: collapse; width: 100%; font-size: 0.85rem; }}
-    table.data th, table.data td {{ border: 1px solid #ccc; padding: 0.35rem 0.5rem; }}
-  </style>
-</head>
-<body>
-  <h1>Chunk hyperparameter calibration</h1>
-  <p class="muted">Generated {meta["timestamp"]} · model <code>{meta["model_name"]}</code></p>
-  <p>Document length: <strong>{meta["chars_in_document"]}</strong> characters ·
-     grid: <strong>{meta["num_pairs"]}</strong> valid (chunk_size, overlap) pairs.</p>
-  <p>Overall score on grid — min <strong>{df["overall_score"].min():.2f}</strong>,
-     max <strong>{df["overall_score"].max():.2f}</strong>,
-     mean <strong>{mean_score:.2f}</strong>, stdev <strong>{std_score:.2f}</strong>.</p>
-  <p><strong>Top composite</strong> (weight {args.stability_weight} on neighbor stdev):
-     chunk_size={int(best["chunk_size"])}, overlap={int(best["overlap"])},
-     overall={float(best["overall_score"]):.2f}, composite={float(best["composite"]):.4f}.</p>
-  <p><strong>Lowest composite:</strong> chunk_size={int(worst["chunk_size"])},
-     overlap={int(worst["overlap"])}, overall={float(worst["overall_score"]):.2f}.</p>
-
-  <h2>Heatmap</h2>
-  <p class="muted">Row = overlap, column = chunk size. Missing cells = invalid overlap ≥ size.</p>
-  <img alt="heatmap" src="data:image/png;base64,{b64_heat}"/>
-
-  <h2>Score distribution</h2>
-  <img alt="histogram" src="data:image/png;base64,{b64_hist}"/>
-
-  <h2>Chunk size vs score</h2>
-  <img alt="scatter" src="data:image/png;base64,{b64_scat}"/>
-
-  <h2>Top 15 by composite</h2>
-  {top_html}
-
-  <h2>Files</h2>
-  <ul>
-    <li><code>summary.csv</code> — full results</li>
-    <li><code>meta.json</code> — run configuration</li>
-    <li><code>figures/</code> — same plots as PNG</li>
-  </ul>
-</body>
-</html>
-"""
-    report_path = out / "report.html"
-    report_path.write_text(html, encoding="utf-8")
-
-    print(f"Wrote: {csv_path}")
-    print(f"Wrote: {out / 'meta.json'}")
-    print(f"Wrote: {report_path}")
-    print(f"Wrote: {fig_dir}/*.png")
+    for idx, model_name in enumerate(model_names, start=1):
+        target_out = out if len(model_names) == 1 else (out / _model_slug(model_name))
+        print(f"\n=== Calibration {idx}/{len(model_names)} → {target_out} ===\n")
+        _run_one_model_calibration(
+            out=target_out,
+            model_name=model_name,
+            raw=raw,
+            criteria=criteria,
+            crit_path=crit_path,
+            chunk_sizes=chunk_sizes,
+            overlaps=overlaps,
+            pairs_count=len(pairs),
+            pdf=args.pdf,
+            text_file=args.text,
+            stability_weight=args.stability_weight,
+            top_k=args.top_k,
+        )
 
 
 if __name__ == "__main__":

@@ -28,6 +28,19 @@ Quick start (local)
 
 The Streamlit UI does **not** expose the embedding model, chunk size, or overlap. Every run uses **`DEFAULT_SENTENCE_TRANSFORMER_MODEL`** in `app/defaults.py` and **`DEFAULT_CHUNK_SIZE`** / **`DEFAULT_CHUNK_OVERLAP`** from `app/chunking_presets.py` (re-exported through `defaults` for a single import surface). Edit those modules and redeploy to change behavior. For grid-style chunk experiments, call `app.stability.run_chunk_sweep` from a script or notebook.
 
+### Architecture (hexagonal layout)
+
+The repo separates **ports** (interfaces), **application** (orchestration), **adapters** (I/O and chunk policy), and the **engine** (`OrdinanceScorer`):
+
+| Layer | Location | Role |
+|--------|------------|------|
+| Domain | `app/domain/` | `TextSource` and `Chunker` protocols (`ports.py`); `ScoringRequest` / `ScoringResult` (`models.py`). |
+| Application | `app/application/` | `OrdinanceScoringService` loads text (optional), chunks via an injected `Chunker`, then calls `OrdinanceScorer.embed_texts` and `score`. |
+| Adapters | `app/adapters/` | `PlainTextSource`, `PdfTextSource` (`text_plain.py`, `text_pdf.py`); `FixedCharacterChunker` wraps `app.utils.chunk_text`. |
+| Engine | `app/scorer.py` | Sentence-Transformers embeddings and cosine / weighting math (unchanged contract). |
+
+`streamlit_app.py` extracts the PDF once with `extract_text_from_pdf`, builds chunks with `FixedCharacterChunker`, and runs **`OrdinanceScoringService.score_chunks`** on “Run semantic scoring” so the same chunk list used in the UI is scored without a second PDF parse. Other entry points (CLI, notebooks) can use **`score_document(PdfTextSource(...), ScoringRequest(...))`** instead.
+
 ### Local calibration (benchmarking)
 
 Run a sweep on one PDF or text file, then open an HTML report with plots (heatmap, histogram, scatter) plus CSV:
@@ -40,8 +53,10 @@ python scripts/calibrate.py --pdf path/to/ordinance.pdf
 Outputs go to `calibration_reports/<UTC timestamp>/` by default (`report.html`, `summary.csv`, `meta.json`, `figures/*.png`). Use `--out ./my_run` to pick a folder. Override the grid with `--chunk-sizes 1000,1500,2000` and `--overlaps 50,100,150`. See `python scripts/calibrate.py --help`.
 
 Running tests
-- Run the full test suite:
-   pytest
+- Run the full test suite (excludes ``slow`` markers — real embedding benchmarks):
+   pytest -m "not slow"
+- HTML coverage + JUnit locally:
+   pytest -m "not slow" --cov=app --cov-report=html:htmlcov --junitxml=test-reports/junit.xml
 - Unit tests only:
    pytest tests/unit/
 - Integration tests only:
@@ -49,9 +64,18 @@ Running tests
 - Stop on first failure:
    pytest -x
 
+**Continuous integration:** Pushes and PRs to ``main`` run ``.github/workflows/ci.yml`` (pytest + coverage + JUnit). Download the **test-reports-…** artifact from the Actions run for XML and HTML coverage.
+
+**Calibration (manual / workflow):** See ``docs/AGENTIC_DEVELOPMENT.md`` for multi-model ``scripts/calibrate.py --models …`` and the optional GitHub **Calibration report** workflow.
+
+**Agentic workflow:** Step-by-step guide for benchmarks, PDF corpus, and determinism: [docs/AGENTIC_DEVELOPMENT.md](docs/AGENTIC_DEVELOPMENT.md).
+
 Files of interest
-- streamlit_app.py — Streamlit UI and orchestration
-- app/utils.py — PDF extraction and text chunking
+- streamlit_app.py — Streamlit UI; wires `FixedCharacterChunker` + `OrdinanceScoringService`
+- app/domain/ — port protocols and scoring request/result types
+- app/application/scoring_service.py — `OrdinanceScoringService` (document → chunks → embed → score)
+- app/adapters/ — concrete `TextSource` / `Chunker` implementations for PDF, plain text, and char windows
+- app/utils.py — PDF extraction and text chunking (used by adapters and `app.stability`)
 - app/scorer.py — local embeddings (Sentence-Transformers) and scoring logic
 - app/stability.py — optional grid sweep of chunk size/overlap vs overall score (stability)
 - app/defaults.py — fixed Sentence-Transformers model id (+ chunk constants re-export)
@@ -62,6 +86,7 @@ Files of interest
 Design notes
 - The scoring method is semantic similarity: for each criterion we compute the highest cosine similarity between its description and any document chunk, normalize to 0–100, apply criterion weights, and combine.
 - The code is modular so you can replace or extend criteria, change embedding models, or swap parsing logic.
+- Hexagonal boundaries (`TextSource`, `Chunker`, `OrdinanceScoringService`) keep UI and scripts thin and make new sources (e.g. DOCX) or chunk strategies pluggable without changing the scorer.
 - Uses SentenceTransformer models locally - no external API calls required. Models are downloaded and cached automatically on first use.
 
 

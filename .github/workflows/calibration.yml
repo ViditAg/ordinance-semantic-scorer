@@ -1,0 +1,62 @@
+# Optional: generate calibration HTML/CSV/PNGs (heavy — downloads models, long CPU).
+# Run manually from the Actions tab after adding a PDF under sample/ or passing a URL checkout.
+
+name: Calibration report
+
+on:
+  workflow_dispatch:
+    inputs:
+      pdf_relative_path:
+        description: "PDF path relative to repo root (e.g. sample/ordinances/flagstaff.pdf)"
+        required: true
+        default: "sample/ordinances/flagstaff.pdf"
+      models:
+        description: "Comma-separated Sentence-Transformers model ids"
+        required: true
+        default: "all-MiniLM-L6-v2"
+      chunk_sizes:
+        description: "Comma-separated chunk sizes (small grid for CI)"
+        required: true
+        default: "1000,1500,2000"
+      overlaps:
+        description: "Comma-separated overlaps"
+        required: true
+        default: "50,100"
+
+jobs:
+  calibrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install -U pip
+          pip install -r requirements.txt -r requirements-calibration.txt
+
+      - name: Run calibration
+        run: |
+          PDF="${{ github.event.inputs.pdf_relative_path }}"
+          test -f "$PDF" || { echo "PDF not found: $PDF"; exit 1; }
+          python scripts/calibrate.py \
+            --pdf "$PDF" \
+            --out "calibration_reports/ci-${{ github.run_id }}" \
+            --models "${{ github.event.inputs.models }}" \
+            --chunk-sizes "${{ github.event.inputs.chunk_sizes }}" \
+            --overlaps "${{ github.event.inputs.overlaps }}" \
+            --max-pairs 200
+
+      - name: Upload calibration bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: calibration-${{ github.run_id }}
+          path: calibration_reports/ci-${{ github.run_id }}/
+          if-no-files-found: error

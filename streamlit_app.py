@@ -24,8 +24,9 @@ From the repository root (with dependencies installed)::
 * **Main area** — upload, optional text preview, run button, metrics, per-row results,
   download button.
 
-The scoring logic itself lives in ``app.scorer``; PDF/chunk helpers live in ``app.utils``.
-Fixed embedding model and chunking live in ``app.defaults`` / ``app.chunking_presets``.
+Orchestration uses ``app.application.scoring_service.OrdinanceScoringService`` with
+``app.adapters`` chunking; the matrix engine lives in ``app.scorer``; PDF helpers in
+``app.utils``. Fixed model and chunking live in ``app.defaults`` / ``app.chunking_presets``.
 """
 
 from __future__ import annotations
@@ -36,13 +37,17 @@ from pathlib import Path
 
 import streamlit as st
 
+from app.adapters.chunking_char import FixedCharacterChunker
+from app.application.scoring_service import OrdinanceScoringService
 from app.defaults import (
     DEFAULT_CHUNK_OVERLAP,
     DEFAULT_CHUNK_SIZE,
     DEFAULT_SENTENCE_TRANSFORMER_MODEL,
 )
-from app.scorer import OrdinanceScorer
-from app.utils import chunk_text, extract_text_from_pdf
+from app.domain.models import ScoringRequest
+from app.utils import extract_text_from_pdf
+
+_APP_ROOT = Path(__file__).resolve().parent
 
 CHUNK_SIZE = DEFAULT_CHUNK_SIZE
 CHUNK_OVERLAP = DEFAULT_CHUNK_OVERLAP
@@ -85,7 +90,7 @@ st.sidebar.caption(
 # -----------------------------------------------------------------------------
 uploaded_file = st.file_uploader("Upload ordinance PDF", type=["pdf"])
 
-criteria_path = Path("app/criteria.json")
+criteria_path = _APP_ROOT / "app" / "criteria.json"
 with open(criteria_path, "r", encoding="utf-8") as fh:
     criteria = json.load(fh)
 
@@ -109,32 +114,26 @@ if uploaded_file is not None:
     if st.checkbox("Show text preview"):
         st.text_area("Document text (preview)", value=raw_text[:10000], height=300)
 
-    chunks = chunk_text(
-        text=raw_text,
-        chunk_size=CHUNK_SIZE,
-        overlap=CHUNK_OVERLAP,
-    )
+    chunker = FixedCharacterChunker(CHUNK_SIZE, CHUNK_OVERLAP)
+    chunks = chunker.chunk(raw_text)
     st.success(
         f"Split into {len(chunks)} chunks (fixed: {CHUNK_SIZE} chars, overlap {CHUNK_OVERLAP})."
     )
 
-    scorer = OrdinanceScorer(
+    scoring_service = OrdinanceScoringService(
         criteria=criteria["criteria"],
         model_name=MODEL_NAME,
+        chunker=chunker,
     )
 
     if st.button("Run semantic scoring"):
         with st.spinner("Embedding document and criteria..."):
-            doc_embeddings = scorer.embed_texts(chunks)
-            crit_texts = [c["description"] for c in criteria["criteria"]]
-            crit_embeddings = scorer.embed_texts(crit_texts)
+            result = scoring_service.score_chunks(
+                chunks,
+                ScoringRequest(top_k=int(top_k)),
+            )
 
-        results = scorer.score(
-            doc_chunks=chunks,
-            doc_embeddings=doc_embeddings,
-            crit_embeddings=crit_embeddings,
-            top_k=top_k,
-        )
+        results = result.score_payload
 
         st.metric("Overall ordinance score", f"{results['overall_score']:.1f} / 100")
 
