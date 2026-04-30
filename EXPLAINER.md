@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Dark Sky Ordinance Semantic Scorer is a Python-based tool that automatically evaluates outdoor lighting ordinance against a comprehensive set of best-practice criteria. Using semantic similarity analysis powered by [SentenceTransformer](https://huggingface.co/sentence-transformers) models, the tool scores how well an ordinance document addresses key dark sky protection requirements.
+The Dark Sky Ordinance Semantic Scorer is a Python-based tool that automatically evaluates outdoor lighting ordinances against a comprehensive set of best-practice criteria. Using semantic similarity analysis powered by [Sentence-Transformers](https://huggingface.co/sentence-transformers) models, the tool scores how well an ordinance document addresses key dark-sky protection requirements.
 
 ### What It Does
 
@@ -16,7 +16,7 @@ The Dark Sky Ordinance Semantic Scorer is a Python-based tool that automatically
 
 - **Fully Local**: No external API calls - all processing happens on your machine
 - **Semantic Understanding**: Uses advanced NLP to understand context, not just keyword matching
-- **Comprehensive Criteria**: 29 criteria covering all aspects of dark sky ordinances
+- **Comprehensive Criteria**: 29 criteria covering all major aspects of dark-sky ordinances
 - **Weighted Scoring**: Important criteria (like shielding requirements) have higher weights
 - **Evidence-Based**: Shows exactly which parts of the ordinance match each criterion
 
@@ -31,11 +31,11 @@ PDF Document
     ↓
 [PDF Parser] → Extracts raw text
     ↓
-[Text Splitter] → Chunks text into overlapping segments
+[FixedCharacterChunker] → Chunks text using defaults from app/chunking_presets.py
     ↓
-[SentenceTransformer] → Converts text to numerical embeddings
+[OrdinanceScoringService] → Orchestrates embed + score pipeline
     ↓
-[Semantic Scorer] → Compares document chunks to criteria embeddings
+[OrdinanceScorer] → Compares document chunks to criteria embeddings
     ↓
 [Results] → Scores + Evidence excerpts
 ```
@@ -48,7 +48,7 @@ PDF Document
 - Preserves basic text structure
 
 #### 2. **Text Chunking**
-- Splits document into overlapping chunks (default: 2000 characters with 200 character overlap)
+- Splits document into overlapping chunks (defaults are defined in `app/chunking_presets.py`)
 - Overlap ensures context isn't lost at chunk boundaries
 - Each chunk is treated as a separate unit for analysis
 
@@ -58,12 +58,12 @@ PDF Document
 - Overlap ensures sentences aren't split awkwardly
 
 #### 3. **Semantic Embedding**
-- Uses SentenceTransformer models (default: `all-MiniLM-L6-v2`)
+- Uses the Sentence-Transformers model from `app/defaults.py` (`DEFAULT_SENTENCE_TRANSFORMER_MODEL`)
 - Converts text chunks and criteria descriptions into high-dimensional vectors (embeddings)
 - Embeddings capture semantic meaning, not just words
 
 **Example:**
-- "Lights must be shielded" and "Fixtures shall prevent light from escaping upward" 
+- "Lights must be shielded" and "Fixtures shall prevent light from escaping upward"
 - These have similar meanings and will have similar embeddings, even with different wording
 
 #### 4. **Similarity Calculation**
@@ -72,7 +72,7 @@ PDF Document
 - Finds the highest similarity score for each criterion
 
 #### 5. **Score Normalization**
-- Converts similarity scores (typically 0.3-0.9) to 0-100 scale
+- Converts similarity scores (typically 0.3-0.9) to a 0-100 scale
 - Formula: `score = max(similarity, 0) * 100`
 - Negative similarities (dissimilar content) are set to 0
 
@@ -96,11 +96,11 @@ Each of the 29 criteria is scored independently:
 
 ### Score Interpretation
 
-- **90-100**: Excellent - Ordinance strongly addresses this criterion
-- **70-89**: Good - Ordinance adequately addresses this criterion
-- **50-69**: Fair - Ordinance partially addresses this criterion
-- **30-49**: Poor - Ordinance minimally addresses this criterion
-- **0-29**: Very Poor - Ordinance does not address this criterion
+- **90-100**: Excellent - The ordinance strongly addresses this criterion
+- **70-89**: Good - The ordinance adequately addresses this criterion
+- **50-69**: Fair - The ordinance partially addresses this criterion
+- **30-49**: Poor - The ordinance minimally addresses this criterion
+- **0-29**: Very poor - The ordinance does not address this criterion
 
 ### Overall Score
 
@@ -175,8 +175,8 @@ Overall score: (153 + 105 + 60) / 4.3 = 74.0
 
 1. **Upload PDF**: Click "Upload ordinance PDF" and select your ordinance file
 2. **Adjust Settings** (optional):
-   - **Top Excerpts**: Number of evidence excerpts per criterion (default: 1)
-   - Embedding model and chunk size/overlap are **fixed in code** (`app/defaults.py`, `app/chunking_presets.py`) — not editable in the UI
+   - **Top Excerpts**: Number of evidence excerpts per criterion (default: 1, configurable in sidebar)
+   - Embedding model and chunk size/overlap are **fixed in code** (`app/defaults.py`, `app/chunking_presets.py`) and shown in sidebar caption
 3. **Run Analysis**: Click "Run semantic scoring"
 4. **Review Results**:
    - Overall score at the top
@@ -190,7 +190,8 @@ Overall score: (153 + 105 + 60) / 4.3 = 74.0
 
 ### Running the Test Suite
 
-All tests live in `tests/` and require no internet access — the ML model and PDF parser are mocked.
+Most unit and integration tests mock embeddings and PDF plumbing so they run fast and offline.
+Some integration checks can use real sample files and may skip when fixtures are missing.
 
 **Run all tests:**
 ```bash
@@ -239,8 +240,10 @@ tests/
 ```json
 {
   "meta": {
-    "file": "path/to/ordinance.pdf",
-    "model": "all-MiniLM-L6-v2",
+    "timestamp": "2026-04-29T02:15:30.120Z",
+    "model_name": "all-MiniLM-L6-v2",
+    "chunk_size": 2000,
+    "chunk_overlap": 200,
     "num_chunks": 45,
     "overall_score": 72.5
   },
@@ -301,7 +304,7 @@ Evidence excerpts show the actual text from your ordinance that matches each cri
 - May miss nuanced technical language
 - Less accurate for domain-specific terms
 
-### Alternative Models
+### Alternative Models (for scripted experiments)
 
 **For Better Accuracy:**
 - `all-mpnet-base-v2` - Larger, more accurate (420MB)
@@ -312,9 +315,10 @@ Evidence excerpts show the actual text from your ordinance that matches each cri
 - `all-distilroberta-v1` - Distilled model, faster
 
 **Changing the model:**
-- In Streamlit: Use the sidebar input
-- In CLI: Use `--model` parameter
-- First run downloads the model (may take time)
+- Streamlit uses a fixed model id from `app/defaults.py`
+- To change production behavior, edit `DEFAULT_SENTENCE_TRANSFORMER_MODEL` and redeploy
+- For experiments, use `scripts/calibrate.py --models ...`
+- First run downloads model weights (may take time)
 
 ---
 
@@ -340,8 +344,8 @@ Evidence excerpts show the actual text from your ordinance that matches each cri
 
 1. **Customize Criteria**: Edit `app/criteria.json` to add/modify criteria
 2. **Adjust Weights**: Change weights based on local priorities
-3. **Experiment with Models**: Try different SentenceTransformer models
-4. **Tune Chunking**: Adjust chunk size/overlap for your document types
+3. **Experiment with Models**: Use `scripts/calibrate.py --models ...` for side-by-side comparisons
+4. **Tune Chunking**: Use calibration sweeps to evaluate chunk size/overlap, then set defaults in code
 5. **Extend Functionality**: Add new features (e.g., comparison mode, trend analysis)
 
 ---
@@ -385,7 +389,7 @@ Evidence excerpts show the actual text from your ordinance that matches each cri
 
 **Low scores across the board**
 - Ordinance may use different terminology
-- Try a larger model (e.g., `all-mpnet-base-v2`)
+- For experiments, try a larger model (e.g., `all-mpnet-base-v2`) using `scripts/calibrate.py --models ...`
 - Check if text extraction worked correctly
 
 **Model download fails**
@@ -399,8 +403,8 @@ Evidence excerpts show the actual text from your ordinance that matches each cri
 - Check Python version (3.9+)
 
 **Slow processing**
-- Use smaller model (`all-MiniLM-L6-v2`)
-- Reduce chunk size
+- Keep the default smaller model (`all-MiniLM-L6-v2`) for production runs
+- For experiments, reduce chunk size / overlap in `scripts/calibrate.py`
 - Process fewer documents at once
 
 ---
@@ -425,9 +429,9 @@ Edit `app/criteria.json` to:
 }
 ```
 
-### Batch processing
+### Batch Processing
 
-Scoring runs through the Streamlit app per upload. Download a JSON report for each ordinance from the app, or call `OrdinanceScorer` from your own script if you need automation.
+Scoring runs through the Streamlit app per upload. Download a JSON report for each ordinance from the app, or call `OrdinanceScoringService` from your own script if you want the same orchestration path as the UI.
 
 ### Comparing Ordinances
 
@@ -469,6 +473,9 @@ ordinance-semantic-scorer/
 ├── app/
 │   ├── defaults.py              # Fixed embedding model id; re-exports chunk defaults
 │   ├── chunking_presets.py     # Chunk size/overlap defaults (named presets for scripts)
+│   ├── domain/                 # Ports + request/result dataclasses
+│   ├── adapters/               # PDF/plain text sources, fixed char chunker
+│   ├── application/            # OrdinanceScoringService orchestration layer
 │   ├── scorer.py               # OrdinanceScorer: embeddings + cosine batching + scoring
 │   ├── stability.py            # Chunk (size, overlap) grid sweep + neighbor variance
 │   ├── utils.py                # PDF extraction, chunking, similarity helpers
@@ -516,6 +523,6 @@ Potential improvements:
 
 ## Conclusion
 
-The Dark Sky Ordinance Semantic Scorer is a powerful tool for evaluating dark sky ordinances. It provides objective, quantitative scores based on semantic analysis, helping ordinance authors and evaluators identify strengths and weaknesses. While it's not a replacement for expert review, it serves as an excellent starting point and comparison tool.
+The Dark Sky Ordinance Semantic Scorer is a strong tool for evaluating dark-sky ordinances. It provides objective, quantitative scores based on semantic analysis, helping ordinance authors and evaluators identify strengths and weaknesses. While it is not a replacement for expert review, it serves as an excellent starting point and comparison tool.
 
 Remember: The tool analyzes what's *in* the ordinance, not how well it's written or how enforceable it is. Always combine automated scoring with expert legal and policy review.
