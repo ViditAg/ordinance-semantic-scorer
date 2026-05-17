@@ -7,21 +7,21 @@ on:
   workflow_dispatch:
     inputs:
       pdf_relative_path:
-        description: "PDF path relative to repo root (e.g. sample/ordinances/flagstaff.pdf)"
+        description: "PDF path relative to repo root (e.g. sample/Flagstaff.pdf)"
         required: true
-        default: "sample/ordinances/flagstaff.pdf"
+        default: "sample/Flagstaff.pdf"
       models:
         description: "Comma-separated Sentence-Transformers model ids"
         required: true
-        default: "all-MiniLM-L6-v2"
+        default: "all-MiniLM-L6-v2,sentence-transformers/all-mpnet-base-v2,sentence-transformers/all-MiniLM-L12-v2"
       chunk_sizes:
-        description: "Comma-separated chunk sizes (small grid for CI)"
+        description: "Comma-separated chunk sizes (default matches app.chunking_presets sweep seeds)"
         required: true
-        default: "1000,1500,2000"
+        default: "500,750,1000,1250,1500"
       overlaps:
-        description: "Comma-separated overlaps"
+        description: "Comma-separated overlaps (each must be < smallest chunk size)"
         required: true
-        default: "50,100"
+        default: "50,75,100,125,150"
 
 jobs:
   calibrate:

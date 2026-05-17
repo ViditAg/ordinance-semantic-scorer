@@ -1,140 +1,235 @@
 # DarkSky Ordinance Semantic Scorer
 
-This repository contains a python-based Streamlit app that lets you,
-- Upload a dark sky or outdoor lighting ordinance PDF
-- Parses the text and split text into phrases for semantic embeddings
-- Runs semantic analysis (locally) against dark sky criteria
-   - Local embeddings: Sentence-Transformers python library runs fully offline after the model is downloaded
-- Returns a per-criterion score (0–100), Top matching excerpt(s) for each criterion and overall score.
-   - Downloadable JSON report
+Python Streamlit app: upload an outdoor lighting / dark-sky ordinance PDF, extract text, chunk it, embed with [Sentence-Transformers](https://huggingface.co/sentence-transformers) locally, and score against `app/criteria.json` (per-criterion 0–100, weighted overall, top evidence excerpts, JSON export).
 
-**📖 For detailed documentation on how the tool works, see [EXPLAINER.md](EXPLAINER.md)**
- 
-# Usage Guide
+**Everything below is in this file** (single documentation entry point).
 
-Quick start (local)
-1. Create and activate a venv. Use **Python 3.9** (any patch except **3.9.7**), **3.10+**, or **3.11+** — see Streamlit’s `Requires-Python` on PyPI. The helper script creates the venv and installs from the lockfile:
+---
+
+## 1. How to learn (step by step)
+
+Do these in order the first time you touch the repo.
+
+1. **Skim this README** through section 3 (how it works) so you know the pipeline and scoring rule.
+2. **Open the rubric** [`app/criteria.json`](app/criteria.json): each row has `title`, `probes` (short phrases embedded for matching), `weight`, optional `pillar` (UI grouping only).
+3. **Read the engine** [`app/scorer.py`](app/scorer.py) docstring and `score()`: max cosine per probe over chunks, mean across probes per criterion, weighted overall.
+4. **Trace the app path** [`streamlit_app.py`](streamlit_app.py) → [`app/application/scoring_service.py`](app/application/scoring_service.py) → `OrdinanceScorer`; note [`app/utils.py`](app/utils.py) for PDF extraction and character chunking.
+5. **Run the test suite** (section 2.3) and open one unit file (e.g. `tests/unit/test_scorer.py`) to see expected scoring behavior with mocked embeddings.
+6. **Optional deep dive:** read [`app/chunking_presets.py`](app/chunking_presets.py) for `DEFAULT_CHUNK_*` vs `SWEEP_*` (calibration grid), and section 5 on evidence-level limits.
+
+---
+
+## 2. How to perform (step by step)
+
+### 2.1 Environment and run the app
+
+1. Use **Python 3.9** (not **3.9.7**), **3.10+**, or **3.11+** (see Streamlit’s `Requires-Python` on PyPI).
+2. Create a venv and install (helper script if you use it):
+
+   ```bash
    bash create_venv.sh
    source .venv-ordinance-semantic-scorer/bin/activate
-
-2. Dependencies are **fully pinned** in `requirements.txt` (including transitive packages) so installs stay reproducible. Reinstall with:
    pip install -r requirements.txt
-   The lock was produced on **Python 3.9.6 / macOS**; if `pip install` fails on another OS (for example a different `torch` wheel), create a fresh venv there, install the same six top-level packages at the versions listed in the file header comment in `requirements.txt`, then run `pip freeze` and replace the lock for that platform.
+   ```
 
-3. Run the app:
+   Dependencies are pinned in `requirements.txt`. If install fails on another OS (e.g. `torch` wheel), create a fresh venv there, install the top-level versions from the file header comment, then `pip freeze` and refresh the lock for that platform.
+
+3. Start the UI:
+
+   ```bash
    streamlit run streamlit_app.py
+   ```
 
-### Model and chunking (fixed in code)
+4. In the app: upload a PDF → set **Top Excerpts** if needed → **Run semantic scoring** → review overall score, per-criterion scores, and **evidence excerpts** → download JSON if useful.
 
-The Streamlit UI does **not** expose the embedding model, chunk size, or overlap. Every run uses **`DEFAULT_SENTENCE_TRANSFORMER_MODEL`** in `app/defaults.py` and **`DEFAULT_CHUNK_SIZE`** / **`DEFAULT_CHUNK_OVERLAP`** from `app/chunking_presets.py` (re-exported through `defaults` for a single import surface). Edit those modules and redeploy to change behavior. For grid-style chunk experiments, call `app.stability.run_chunk_sweep` from a script or notebook.
+### 2.2 Model and chunking (fixed in code)
 
-### Architecture (hexagonal layout)
+The UI does **not** change the embedding model or chunk hyperparameters. They live in:
 
-The repo separates **ports** (interfaces), **application** (orchestration), **adapters** (I/O and chunk policy), and the **engine** (`OrdinanceScorer`):
+- [`app/defaults.py`](app/defaults.py) — `DEFAULT_SENTENCE_TRANSFORMER_MODEL` (currently `sentence-transformers/all-mpnet-base-v2`; scores are **not** comparable to older MiniLM runs).
+- [`app/chunking_presets.py`](app/chunking_presets.py) — `DEFAULT_CHUNK_SIZE` / `DEFAULT_CHUNK_OVERLAP` (re-exported through `defaults` for a single import).
 
-| Layer | Location | Role |
-|--------|------------|------|
-| Domain | `app/domain/` | `TextSource` and `Chunker` protocols (`ports.py`); `ScoringRequest` / `ScoringResult` (`models.py`). |
-| Application | `app/application/` | `OrdinanceScoringService` loads text (optional), chunks via an injected `Chunker`, then calls `OrdinanceScorer.embed_texts` and `score`. |
-| Adapters | `app/adapters/` | `PlainTextSource`, `PdfTextSource` (`text_plain.py`, `text_pdf.py`); `FixedCharacterChunker` wraps `app.utils.chunk_text`. |
-| Engine | `app/scorer.py` | Sentence-Transformers embeddings and cosine / weighting math (unchanged contract). |
+Edit those modules and redeploy to change behavior. For programmatic grid experiments use `app.stability.run_chunk_sweep` or `scripts/calibrate.py`.
 
-`streamlit_app.py` extracts the PDF once with `extract_text_from_pdf`, builds chunks with `FixedCharacterChunker`, and runs **`OrdinanceScoringService.score_chunks`** on “Run semantic scoring” so the same chunk list used in the UI is scored without a second PDF parse. Other entry points (CLI, notebooks) can use **`score_document(PdfTextSource(...), ScoringRequest(...))`** instead.
+### 2.3 Tests (local)
 
-### Local calibration (benchmarking)
+```bash
+pytest -m "not slow"                    # default CI-equivalent (skip real embedding benchmark)
+pytest tests/unit/
+pytest tests/integration/
+pytest -m "not slow" --cov=app --cov-report=html:htmlcov --junitxml=test-reports/junit.xml
+pytest -x                               # stop on first failure
+```
 
-Run a sweep on one PDF or text file, then open an HTML report with plots (heatmap, histogram, scatter) plus CSV:
+**CI:** pushes/PRs to `main` run `.github/workflows/ci.yml` and upload **test-reports** + coverage artifacts.
+
+### 2.4 Benchmark PDFs and optional real-model floors
+
+- Corpus list: [`tests/fixtures/ordinances/manifest.json`](tests/fixtures/ordinances/manifest.json). Committed samples: `sample/Flagstaff.pdf`, `Sisters.pdf`, `Bend.pdf`, `Deschutes.pdf`.
+- Fast integration tests: [`tests/integration/test_ordinance_corpus.py`](tests/integration/test_ordinance_corpus.py) — real extraction + mocked embeddings (deterministic).
+- **Slow** real-model regression (downloads weights; not in default CI):
+
+  ```bash
+  export ORDINANCE_RUN_SCORING_BENCHMARK=1
+  pytest tests/integration/test_ordinance_corpus.py -m slow -v --tb=short
+  ```
+
+- Ground-truth spot checks (substring + manifest integrity): [`tests/fixtures/ground_truth/labels.json`](tests/fixtures/ground_truth/labels.json) and `tests/integration/test_ground_truth_labels.py`.
+
+**Scanned PDFs:** only embedded text is read (`pdfplumber`); image-only PDFs fail extraction checks — use a text-layer PDF or `scripts/calibrate.py --text` with a `.txt` extract.
+
+### 2.5 Calibration (chunk grid, optional multi-model)
 
 ```bash
 pip install -r requirements.txt -r requirements-calibration.txt
-python scripts/calibrate.py --pdf path/to/ordinance.pdf
+python scripts/calibrate.py --pdf sample/Flagstaff.pdf
 ```
 
-Outputs go to `calibration_reports/<UTC timestamp>/` by default (`report.html`, `summary.csv`, `meta.json`, `figures/*.png`). Use `--out ./my_run` to pick a folder. Override the grid with `--chunk-sizes 1000,1500,2000` and `--overlaps 50,100,150`. See `python scripts/calibrate.py --help`.
+Default output: `calibration_reports/<UTC>/` with `report.html`, `summary.csv`, `meta.json`, `figures/*.png`. Without `--chunk-sizes` / `--overlaps`, the script uses `SWEEP_*` from `app/chunking_presets.py` (chunk sizes **500–1500** step 250, overlaps **50–150** step 25 — includes production-style **750**). Every overlap must be **strictly less than** every chunk size; `--max-pairs` defaults to `72`.
 
-Running tests
-- Run the full test suite (excludes ``slow`` markers — real embedding benchmarks):
-   pytest -m "not slow"
-- HTML coverage + JUnit locally:
-   pytest -m "not slow" --cov=app --cov-report=html:htmlcov --junitxml=test-reports/junit.xml
-- Unit tests only:
-   pytest tests/unit/
-- Integration tests only:
-   pytest tests/integration/
-- Stop on first failure:
-   pytest -x
+Multi-model example:
 
-**Continuous integration:** Pushes and PRs to ``main`` run ``.github/workflows/ci.yml`` (pytest + coverage + JUnit). Download the **test-reports-…** artifact from the Actions run for XML and HTML coverage.
+```bash
+python scripts/calibrate.py \
+  --pdf sample/Flagstaff.pdf \
+  --out calibration_reports/compare_models \
+  --models "all-MiniLM-L6-v2,sentence-transformers/all-mpnet-base-v2,sentence-transformers/all-MiniLM-L12-v2" \
+  --max-pairs 72
+```
 
-**Calibration (manual / workflow):** See ``docs/AGENTIC_DEVELOPMENT.md`` for multi-model ``scripts/calibrate.py --models …`` and the optional GitHub **Calibration report** workflow.
+**GitHub:** Actions → **Calibration report** → run workflow (PDF path relative to repo, models, chunk sizes, overlaps). Artifact contains the bundle.
 
-**Agentic workflow:** Step-by-step guide for benchmarks, PDF corpus, and determinism: [docs/AGENTIC_DEVELOPMENT.md](docs/AGENTIC_DEVELOPMENT.md).
+### 2.6 New ordinance PDF in the benchmark set
 
-Files of interest
-- streamlit_app.py — Streamlit UI; wires `FixedCharacterChunker` + `OrdinanceScoringService`
-- app/domain/ — port protocols and scoring request/result types
-- app/application/scoring_service.py — `OrdinanceScoringService` (document → chunks → embed → score)
-- app/adapters/ — concrete `TextSource` / `Chunker` implementations for PDF, plain text, and char windows
-- app/utils.py — PDF extraction and text chunking (used by adapters and `app.stability`)
-- app/scorer.py — local embeddings (Sentence-Transformers) and scoring logic
-- app/stability.py — optional grid sweep of chunk size/overlap vs overall score (stability)
-- app/defaults.py — fixed Sentence-Transformers model id (+ chunk constants re-export)
-- app/chunking_presets.py — chunk size/overlap defaults and optional preset helpers for scripts/tests
-- app/criteria.json — dark sky ordinance evaluation criteria
-- scripts/calibrate.py — local chunk grid sweep → HTML report + plots (optional `requirements-calibration.txt`)
+1. Add the file under a repo path (e.g. `sample/` or `sample/ordinances/`).
+2. Add or update an entry in `tests/fixtures/ordinances/manifest.json` (`path`, `min_chars`, `keywords`, optional `benchmark_min_overall_score`).
+3. Run `pytest tests/integration/test_ordinance_corpus.py` (and slow benchmarks if you use floors).
 
-Design notes
-- The scoring method is semantic similarity: for each criterion we compute the highest cosine similarity between its description and any document chunk, normalize to 0–100, apply criterion weights, and combine.
-- The code is modular so you can replace or extend criteria, change embedding models, or swap parsing logic.
-- Hexagonal boundaries (`TextSource`, `Chunker`, `OrdinanceScoringService`) keep UI and scripts thin and make new sources (e.g. DOCX) or chunk strategies pluggable without changing the scorer.
-- Uses SentenceTransformer models locally - no external API calls required. Models are downloaded and cached automatically on first use.
+---
 
+## 3. How it works
 
-# Best Practices
-## For Ordinance Authors
+### 3.1 Architecture (hexagonal)
 
-1. **Be Specific**: Use clear, detailed language rather than vague statements
-2. **Use Technical Terms**: Include proper terminology (e.g., "full cutoff", "BUG rating")
-3. **Provide Examples**: Include examples of compliant and non-compliant lighting
-4. **Define Terms**: Have a definitions section for technical terms
-5. **Be Comprehensive**: Address all 29 criteria for best scores
+| Layer | Location | Role |
+|--------|------------|------|
+| Domain | `app/domain/` | `TextSource`, `Chunker` (`ports.py`); `ScoringRequest` / `ScoringResult` (`models.py`). |
+| Application | `app/application/` | `OrdinanceScoringService` chunks (via injected `Chunker`), `embed_texts`, `score`. |
+| Adapters | `app/adapters/` | `PlainTextSource`, `PdfTextSource`; `FixedCharacterChunker` → `app.utils.chunk_text`. |
+| Engine | `app/scorer.py` | Sentence-Transformers embeddings, cosine similarity, weighting. |
 
-## For Evaluators
-1. **Review Evidence**: Always check the evidence excerpts, not just scores
-2. **Context Matters**: Low scores may indicate missing sections, not poor quality
-3. **Compare Multiple Ordinances**: Use scores to compare different ordinances
-4. **Iterate**: Use results to identify areas for improvement
-5. **Manual Review**: Use tool as a guide, but always do manual review
+`streamlit_app.py` extracts the PDF once, chunks with `FixedCharacterChunker`, calls `OrdinanceScoringService.score_chunks` so the UI uses one chunk list.
 
-## For Developers
-1. **Customize Criteria**: Edit `app/criteria.json` to add/modify criteria
-2. **Adjust Weights**: Change weights based on local priorities
-3. **Experiment with Models**: Try different SentenceTransformer models
-4. **Tune Chunking**: Adjust chunk size/overlap for your document types
-5. **Extend Functionality**: Add new features (e.g., comparison mode, trend analysis)
+### 3.2 Data flow
 
-# Limitations and Considerations
-## What the Tool Does Well
-- Identifies if criteria are addressed in the ordinance
-- Finds relevant sections automatically
-- Provides quantitative scores for comparison
-- Handles various writing styles and formats
-- Works with any PDF ordinance document
+```
+PDF → extract_text_from_pdf → chunk_text → embed chunks + embed criterion probes
+     → per probe: max cosine over chunks → mean probe scores per criterion
+     → weighted overall + top-k excerpts per criterion
+```
 
-## What the Tool Cannot Do
-- Evaluate legal quality or enforceability
-- Check for contradictions or conflicts
-- Verify compliance with local laws
-- Assess political feasibility
-- Replace expert legal review
+### 3.3 Scoring detail
 
-## Important Notes
-- Semantic similarity is not perfect: The tool may miss some matches or find false positives
-- Context matters: A low score doesn't always mean the ordinance is bad
-- Language variations: Different wording for the same concept may score differently
-- Model limitations: Smaller models may miss technical nuances
-- PDF quality: Poorly scanned PDFs may have extraction errors
+- Each criterion has one or more **probes** (short strings in `criteria.json`; if missing, the `title` is embedded once).
+- For each probe, take the **maximum** cosine similarity across **all** document chunks, map to 0–100 with `max(sim, 0) * 100`.
+- **Criterion score** = mean of those probe scores. **Overall** = globally renormalized weights from `criteria.json` ( `pillar` is UI-only).
 
+**Evidence:** top‑k chunks for a criterion are ranked by the best match to **any** probe for that criterion.
 
-# License
-- [MIT](LICENSE)
+### 3.4 Rubric shape
+
+**17** scored criteria (five **pillars** in the UI): Purpose; Applicability; Features of light (shielding, trespass, CCT, uplight, after-hours, controls, budgets); Type of lighted areas (classes, streets, greenhouses, signage, parking/holiday/sports); Regulatory (permits, enforcement). If you change the count, update `EXPECTED_CRITERIA_COUNT` in `tests/integration/test_pipeline.py`.
+
+### 3.5 Interpreting per-criterion bands (similarity-based, not legal advice)
+
+| Range | Rough read |
+|-------|------------|
+| 90–100 | Strong match to probe themes |
+| 70–89 | Adequate topical coverage |
+| 50–69 | Partial |
+| 30–49 | Weak |
+| 0–29 | Little or no match |
+
+Always read **excerpts**; similarity is not legal sufficiency.
+
+### 3.6 Default model note
+
+`all-mpnet-base-v2` is a strong general sentence encoder; overall scores tend to run higher than small MiniLM checkpoints on the same text. Do not compare absolute numbers across different models.
+
+---
+
+## 4. Evaluation and retrieval strategy
+
+The pipeline asks *“is there some chunk that looks like this probe?”* It does **not** prove correct legal obligations, negation, or exceptions.
+
+**Common issues:** false-positive excerpts, high scores from vague topical overlap, weak handling of legal nuance on general-purpose embeddings.
+
+**What helps:** manifest + committed PDFs under `tests/fixtures/ordinances/manifest.json`; calibration sweep aligned with production (`SWEEP_*` includes 750); `tests/fixtures/ground_truth/labels.json` for v0 integrity (substring + ids), not full Recall@K yet.
+
+**What aggregate scores are bad at:** proving the **right** paragraph was retrieved. Prefer extending labels with gold spans or chunk indices and measuring hit rate @K against `top_excerpts`, plus small gold vs hard-negative probe sets (negation, numeric limits). Optional next steps: other bi-encoders, cross-encoder rerank on top‑K — report deltas vs `DEFAULT_SENTENCE_TRANSFORMER_MODEL`.
+
+**Determinism (golden runs):** lock rubric revision, model + `requirements.txt`, `DEFAULT_CHUNK_*`, and document set; use slow benchmarks or release-only jobs for score floors, not every PR.
+
+---
+
+## 5. Agent / automation cheat sheet
+
+| Goal | Action |
+|------|--------|
+| Fix CI | Reproduce with `pytest -m "not slow"`; patch until green. |
+| New PDF | Add file; update manifest; run corpus integration tests. |
+| Bad scores / empty text | Check `app/extraction_quality.py` metrics; suspect scan → text PDF or `--text`. |
+| Model comparison | `calibrate.py --models A,B,C`; compare excerpts and `composite`, not only raw score. |
+| Lock behavior | Set defaults from one chosen (model, chunk_size, overlap); tune manifest floors from slow run. |
+
+---
+
+## 6. Files of interest
+
+- `streamlit_app.py` — UI
+- `app/application/scoring_service.py` — orchestration
+- `app/scorer.py` — embeddings + scoring
+- `app/utils.py` — PDF + chunking
+- `app/stability.py` — chunk sweep
+- `app/defaults.py`, `app/chunking_presets.py` — model + chunk policy
+- `app/criteria.json` — rubric
+- `scripts/calibrate.py` — calibration reports
+
+Design: modular criteria and chunk policy; hexagonal boundaries keep the scorer independent of Streamlit.
+
+---
+
+## 7. Appendix: retrieval quality review checklist (concise)
+
+When improving match quality, inspect in order:
+
+1. **Embeddings** — model id, `normalize_embeddings=True`, truncation, query/document conventions if you swap models.
+2. **Geometry** — cosine / dot product on unit vectors; score compression (`app/utils.py`).
+3. **Chunking** — size, overlap, mixed-topic dilution; align experiments with `DEFAULT_CHUNK_*`.
+4. **Aggregation** — max over chunks per probe rewards any single hit; consider whether product needs rerank or stricter evidence rules.
+5. **Domain** — legal negation, numbers, headings; consider hybrid (sparse + dense) or cross-encoder rerank on candidate chunks.
+6. **ANN** — this codebase uses brute-force cosine over all chunks per run; if you add FAISS etc., validate recall vs exact neighbors.
+
+---
+
+## 8. Best practices
+
+**Ordinance authors:** be specific; use technical terms (e.g. full cutoff, BUG); define terms; cover rubric themes for stronger scores.
+
+**Evaluators:** trust excerpts over numbers alone; compare ordinances with the **same** model and chunk settings; manually review important decisions.
+
+**Developers:** version rubric changes; adjust weights deliberately; tune chunking for your PDFs; extend tests when changing scoring contracts.
+
+---
+
+## 9. Limitations
+
+**Does well:** surfaces related sections, comparable scores, local/offline runs, varied wording.
+
+**Does not:** legal enforceability, contradiction checks, jurisdiction-specific compliance, or replace expert review. Poor PDFs → bad extraction. Semantic similarity can miss matches or show false positives.
+
+---
+
+## 10. License
+
+[MIT](LICENSE)

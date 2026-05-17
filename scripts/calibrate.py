@@ -15,7 +15,8 @@ Usage (from repository root, with optional calibration extras installed)::
     python scripts/calibrate.py --pdf sample/your.pdf --out reports/run1
 
 Defaults for the sweep grid match ``app.chunking_presets`` sweep seeds unless
-you pass ``--chunk-sizes`` / ``--overlaps`` as comma-separated lists.
+you pass ``--chunk-sizes`` / ``--overlaps`` as comma-separated lists (finer
+windows around production-style chunk sizes, typically 500–1500 characters).
 
 **Multiple embedding models** — pass ``--models id1,id2`` (comma-separated
 Sentence-Transformers checkpoint ids). Each model gets its own subdirectory

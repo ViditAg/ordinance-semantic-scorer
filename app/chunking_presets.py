@@ -18,16 +18,19 @@ from __future__ import annotations
 from typing import Dict, List, Tuple
 
 # House defaults — single source of truth for "recommended" segmentation.
-DEFAULT_CHUNK_SIZE = 2000
-DEFAULT_CHUNK_OVERLAP = 200
+# Smaller windows improve citation locality vs. a single 2k blob that mixes articles.
+DEFAULT_CHUNK_SIZE = 750
+DEFAULT_CHUNK_OVERLAP = 120
 
-# Suggested sweep range seeds in the UI (centered on balanced defaults).
-SWEEP_CHUNK_SIZE_MIN_DEFAULT = 1500
-SWEEP_CHUNK_SIZE_MAX_DEFAULT = 3000
-SWEEP_CHUNK_SIZE_STEP_DEFAULT = 500
-SWEEP_OVERLAP_MIN_DEFAULT = 100
-SWEEP_OVERLAP_MAX_DEFAULT = 400
-SWEEP_OVERLAP_STEP_DEFAULT = 50
+# Default calibration grid (``scripts/calibrate.py`` when flags omitted).
+# Spans finer windows around ``DEFAULT_CHUNK_SIZE`` (750) so sweeps match production
+# segmentation policy; overlaps stay strictly below the smallest chunk size (500).
+SWEEP_CHUNK_SIZE_MIN_DEFAULT = 500
+SWEEP_CHUNK_SIZE_MAX_DEFAULT = 1500
+SWEEP_CHUNK_SIZE_STEP_DEFAULT = 250
+SWEEP_OVERLAP_MIN_DEFAULT = 50
+SWEEP_OVERLAP_MAX_DEFAULT = 150
+SWEEP_OVERLAP_STEP_DEFAULT = 25
 
 PresetKey = str
 
@@ -39,14 +42,14 @@ _PRESETS: Dict[PresetKey, Tuple[int, int, str, str]] = {
         "Default for cross-document comparisons; good for typical ordinance length.",
     ),
     "fine": (
-        1200,
-        150,
+        500,
+        75,
         "Fine-grained",
-        "More, shorter chunks — useful when sections are dense or the PDF is short.",
+        "Shorter chunks than the default — tighter citations; more embedding calls.",
     ),
     "coarse": (
-        3200,
-        250,
+        1800,
+        180,
         "Coarse segments",
         "Fewer, longer chunks — fewer embedding calls; watch for ideas split across cuts.",
     ),

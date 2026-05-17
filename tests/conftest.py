@@ -54,13 +54,13 @@ def minimal_criteria() -> list[dict]:
         {
             "title": "Shielding",
             "short": "Lights must be shielded.",
-            "description": "All fixtures shall be fully shielded and downcast.",
+            "probes": ["All fixtures shall be fully shielded and downcast."],
             "weight": 1.8,
         },
         {
             "title": "Color Temperature",
             "short": "Use amber lights.",
-            "description": "Fixtures should emit amber light below 2200K.",
+            "probes": ["Fixtures should emit amber light below 2200K."],
             "weight": 1.0,
         },
     ]

@@ -30,6 +30,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from app.chunking_presets import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE
 from app.scorer import OrdinanceScorer
 from app.utils import chunk_text
 
@@ -42,8 +43,15 @@ SAMPLE_PDF = ROOT / "sample" / "updated_dark_skies_outdoor_lighting_ordinance.pd
 # Helpers
 # ---------------------------------------------------------------------------
 
-EXPECTED_CRITERIA_COUNT = 29
-EXPECTED_CRITERIA_KEYS = {"title", "short", "description", "weight"}
+EXPECTED_CRITERIA_COUNT = 17
+EXPECTED_CRITERIA_KEYS = {"title", "probes", "weight", "pillar"}
+EXPECTED_PILLAR_KEYS = {
+    "Purpose",
+    "Applicability",
+    "Features of light",
+    "Type of lighted areas",
+    "Regulatory",
+}
 
 
 def _fake_encode_factory(dim: int = 16, seed: int = 0):
@@ -91,6 +99,12 @@ class TestCriteriaJson:
         data = json.loads(CRITERIA_PATH.read_text(encoding="utf-8"))
         assert "criteria" in data, "Top-level key 'criteria' missing from criteria.json"
 
+    def test_each_criterion_has_pillar_label(self):
+        """Pillar is a UI grouping field; every bundled row should name its pillar."""
+        data = json.loads(CRITERIA_PATH.read_text(encoding="utf-8"))
+        pillars_used = {c["pillar"] for c in data["criteria"]}
+        assert pillars_used == EXPECTED_PILLAR_KEYS
+
     def test_criteria_is_a_list(self):
         """Ordered list → stable criterion index ↔ embedding row alignment."""
         data = json.loads(CRITERIA_PATH.read_text(encoding="utf-8"))
@@ -108,7 +122,7 @@ class TestCriteriaJson:
         )
 
     def test_each_criterion_has_required_keys(self):
-        """Every entry must be embeddable and displayable (title/short/desc/weight)."""
+        """Every entry must include title, probes, weight, and pillar."""
         data = json.loads(CRITERIA_PATH.read_text(encoding="utf-8"))
         for idx, crit in enumerate(data["criteria"]):
             missing = EXPECTED_CRITERIA_KEYS - crit.keys()
@@ -130,13 +144,16 @@ class TestCriteriaJson:
         serials = [c.get("serial_number") for c in data["criteria"] if "serial_number" in c]
         assert len(serials) == len(set(serials)), "Duplicate serial_numbers in criteria.json"
 
-    def test_no_blank_descriptions(self):
-        """Empty descriptions would embed to noise — guard editorial completeness."""
+    def test_each_criterion_has_nonempty_atomic_probes(self):
+        """Bundled rubric uses short ``probes`` for defensible per-theme matching."""
         data = json.loads(CRITERIA_PATH.read_text(encoding="utf-8"))
-        for crit in data["criteria"]:
-            assert crit["description"].strip(), (
-                f"Criterion '{crit['title']}' has an empty description"
+        for idx, crit in enumerate(data["criteria"]):
+            probes = crit.get("probes")
+            assert isinstance(probes, list) and len(probes) >= 1, (
+                f"Criterion #{idx + 1} missing probes list"
             )
+            for p in probes:
+                assert isinstance(p, str) and p.strip(), f"Criterion #{idx + 1} has blank probe"
 
 
 # ---------------------------------------------------------------------------
@@ -215,11 +232,11 @@ class TestFullPipeline:
         chunks = chunk_text(self.SAMPLE_TEXT, chunk_size=500, overlap=50)
         scorer = OrdinanceScorer(criteria=criteria, model_name="mock-model")
         doc_embeddings = scorer.embed_texts(chunks)
-        crit_embeddings = scorer.embed_texts([c["description"] for c in criteria])
+        crit_probe_embeddings = scorer.embed_criteria_probes()
         return scorer.score(
             doc_chunks=chunks,
             doc_embeddings=doc_embeddings,
-            crit_embeddings=crit_embeddings,
+            crit_probe_embeddings=crit_probe_embeddings,
             top_k=2,
         )
 
@@ -251,8 +268,17 @@ class TestFullPipeline:
 
     def test_each_result_has_required_keys(self, pipeline_result):
         """Guard against accidentally dropping keys when refactoring ``score()``."""
-        required = {"title", "short", "score", "raw_similarity",
-                    "top_excerpts", "top_scores", "weight"}
+        required = {
+            "title",
+            "short",
+            "score",
+            "raw_similarity",
+            "probe_count",
+            "top_excerpts",
+            "top_scores",
+            "weight",
+            "pillar",
+        }
         for r in pipeline_result["criteria_results"]:
             assert required.issubset(r.keys())
 
@@ -276,13 +302,17 @@ class TestFullPipeline:
             "Number of embeddings must match number of chunks"
         )
 
-    def test_crit_embeddings_count_equals_criteria_count(self):
-        """Criterion descriptions embed 1:1 with rubric rows."""
+    def test_embed_criteria_probes_groups_align_with_rubric(self):
+        """One probe group per rubric row; total vectors equals flattened probe count."""
         data = json.loads(CRITERIA_PATH.read_text(encoding="utf-8"))
         criteria = data["criteria"]
         scorer = OrdinanceScorer(criteria=criteria, model_name="mock-model")
-        crit_embeddings = scorer.embed_texts([c["description"] for c in criteria])
-        assert len(crit_embeddings) == len(criteria)
+        from app.scorer import criterion_probe_texts
+
+        expected = sum(len(criterion_probe_texts(c)) for c in criteria)
+        groups = scorer.embed_criteria_probes()
+        assert len(groups) == len(criteria)
+        assert sum(len(g) for g in groups) == expected
 
     def test_result_is_deterministic(self):
         """Running the pipeline twice on the same text must yield the same scores."""
@@ -293,11 +323,19 @@ class TestFullPipeline:
 
         # Embed once and reuse: model mock is stateful, so we capture embeddings.
         doc_embs = scorer.embed_texts(chunks)
-        crit_embs = scorer.embed_texts([c["description"] for c in criteria])
-        r1 = scorer.score(doc_chunks=chunks, doc_embeddings=doc_embs,
-                          crit_embeddings=crit_embs, top_k=1)
-        r2 = scorer.score(doc_chunks=chunks, doc_embeddings=doc_embs,
-                          crit_embeddings=crit_embs, top_k=1)
+        crit_probe_embs = scorer.embed_criteria_probes()
+        r1 = scorer.score(
+            doc_chunks=chunks,
+            doc_embeddings=doc_embs,
+            crit_probe_embeddings=crit_probe_embs,
+            top_k=1,
+        )
+        r2 = scorer.score(
+            doc_chunks=chunks,
+            doc_embeddings=doc_embs,
+            crit_probe_embeddings=crit_probe_embs,
+            top_k=1,
+        )
         assert r1["overall_score"] == r2["overall_score"]
         for a, b in zip(r1["criteria_results"], r2["criteria_results"]):
             assert a["score"] == b["score"]
@@ -333,8 +371,12 @@ class TestRealSamplePdf:
 
     @pytest.fixture(scope="class")
     def chunks(self, extracted_text):
-        """Reuse default production-ish chunking hyperparameters for smoke coverage."""
-        return chunk_text(extracted_text, chunk_size=2000, overlap=200)
+        """Reuse default production chunking hyperparameters for smoke coverage."""
+        return chunk_text(
+            extracted_text,
+            chunk_size=DEFAULT_CHUNK_SIZE,
+            overlap=DEFAULT_CHUNK_OVERLAP,
+        )
 
     # --- extraction ---
 
@@ -359,7 +401,7 @@ class TestRealSamplePdf:
     # --- chunking ---
 
     def test_chunking_produces_multiple_chunks(self, chunks):
-        """Real ordinances exceed a single 2000-character window after extraction."""
+        """Real ordinances exceed a single default chunk window after extraction."""
         assert len(chunks) > 1, "Expected multiple chunks from a real ordinance PDF"
 
     def test_all_chunks_are_non_empty_strings(self, chunks):
@@ -370,6 +412,8 @@ class TestRealSamplePdf:
             )
 
     def test_all_chunks_within_size_limit(self, chunks):
-        """Enforce the same ``chunk_size`` bound the UI slider advertises."""
+        """Enforce the same ``chunk_size`` bound as default production chunking."""
         for i, chunk in enumerate(chunks):
-            assert len(chunk) <= 2000, f"Chunk {i} exceeds chunk_size: {len(chunk)} chars"
+            assert len(chunk) <= DEFAULT_CHUNK_SIZE, (
+                f"Chunk {i} exceeds chunk_size: {len(chunk)} chars"
+            )

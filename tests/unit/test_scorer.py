@@ -24,7 +24,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from app.scorer import OrdinanceScorer
+from app.scorer import OrdinanceScorer, criterion_probe_texts, criterion_short_preview
 
 
 # ---------------------------------------------------------------------------
@@ -48,7 +48,7 @@ def _unit(v: list[float]) -> list[float]:
 
 def _minimal_criteria():
     """Single-criterion rubric — minimal dict accepted by ``OrdinanceScorer``."""
-    return [{"title": "t", "description": "d", "weight": 1.0}]
+    return [{"title": "t", "probes": ["d"], "weight": 1.0}]
 
 
 def _make_mock_model(dim: int = 8, seed: int = 42):
@@ -72,6 +72,35 @@ def _make_mock_model(dim: int = 8, seed: int = 42):
     return mock_model
 
 
+class TestCriterionProbeTexts:
+    """``criterion_probe_texts`` rubric parsing for embedding batches."""
+
+    def test_probes_key_used_when_nonempty(self):
+        crit = {"title": "t", "probes": ["a", " b ", ""]}
+        assert criterion_probe_texts(crit) == ["a", "b"]
+
+    def test_falls_back_to_title_when_probes_missing(self):
+        crit = {"title": "Purpose"}
+        assert criterion_probe_texts(crit) == ["Purpose"]
+
+    def test_empty_probes_list_falls_back_to_title(self):
+        crit = {"title": "T", "probes": []}
+        assert criterion_probe_texts(crit) == ["T"]
+
+    def test_whitespace_only_probes_fall_back_to_title(self):
+        crit = {"title": "T", "probes": [" ", ""]}
+        assert criterion_probe_texts(crit) == ["T"]
+
+    def test_short_preview_uses_explicit_short(self):
+        crit = {"title": "x", "probes": ["a", "b"], "short": "  fixed  "}
+        assert criterion_short_preview(crit) == "fixed"
+
+    def test_short_preview_joins_probes(self):
+        crit = {"title": "x", "probes": ["alpha", "beta"]}
+        assert "alpha" in criterion_short_preview(crit)
+        assert "beta" in criterion_short_preview(crit)
+
+
 # ---------------------------------------------------------------------------
 # Weight normalisation
 # ---------------------------------------------------------------------------
@@ -83,9 +112,9 @@ class TestWeightNormalisation:
     def test_weights_sum_to_one(self):
         """Renormalised explicit weights must sum to unity (floating tolerance)."""
         criteria = [
-            {"title": "A", "description": "desc A", "weight": 2.0},
-            {"title": "B", "description": "desc B", "weight": 1.0},
-            {"title": "C", "description": "desc C", "weight": 1.0},
+            {"title": "A", "probes": ["desc A"], "weight": 2.0},
+            {"title": "B", "probes": ["desc B"], "weight": 1.0},
+            {"title": "C", "probes": ["desc C"], "weight": 1.0},
         ]
         scorer = OrdinanceScorer(criteria)
         assert sum(scorer.weights) == pytest.approx(1.0, abs=1e-9)
@@ -93,7 +122,7 @@ class TestWeightNormalisation:
     def test_equal_weights_normalise_to_equal_fractions(self):
         """Uniform raw weights → each criterion gets ``1/n`` influence."""
         n = 4
-        criteria = [{"title": str(i), "description": "d", "weight": 1.0} for i in range(n)]
+        criteria = [{"title": str(i), "probes": ["d"], "weight": 1.0} for i in range(n)]
         scorer = OrdinanceScorer(criteria)
         for w in scorer.weights:
             assert w == pytest.approx(1.0 / n, abs=1e-9)
@@ -101,8 +130,8 @@ class TestWeightNormalisation:
     def test_missing_weight_defaults_to_one(self):
         """Omitted ``weight`` key should behave like ``weight: 1.0``."""
         criteria = [
-            {"title": "A", "description": "d"},
-            {"title": "B", "description": "d", "weight": 1.0},
+            {"title": "A", "probes": ["d"]},
+            {"title": "B", "probes": ["d"], "weight": 1.0},
         ]
         scorer = OrdinanceScorer(criteria)
         assert len(scorer.weights) == 2
@@ -114,8 +143,8 @@ class TestWeightNormalisation:
         ``or 1.0`` fallback — weights become all-zero (documented edge case).
         """
         criteria = [
-            {"title": "A", "description": "d", "weight": 0.0},
-            {"title": "B", "description": "d", "weight": 0.0},
+            {"title": "A", "probes": ["d"], "weight": 0.0},
+            {"title": "B", "probes": ["d"], "weight": 0.0},
         ]
         scorer = OrdinanceScorer(criteria)
         assert all(w == pytest.approx(0.0) for w in scorer.weights)
@@ -138,8 +167,8 @@ class TestScorerScore:
     def two_criteria(self):
         """Two-criterion rubric with equal explicit weights."""
         return [
-            {"title": "A", "description": "desc A", "weight": 1.0},
-            {"title": "B", "description": "desc B", "weight": 1.0},
+            {"title": "A", "probes": ["desc A"], "weight": 1.0},
+            {"title": "B", "probes": ["desc B"], "weight": 1.0},
         ]
 
     @pytest.fixture()
@@ -151,7 +180,7 @@ class TestScorerScore:
         return {
             "doc_chunks": ["chunk text"],
             "doc_embeddings": [vec],
-            "crit_embeddings": [vec, _unit([0.0, 1.0, 0.0, 0.0])],
+            "crit_probe_embeddings": [[vec], [_unit([0.0, 1.0, 0.0, 0.0])]],
         }
 
     def test_output_has_overall_score_key(self, two_criteria, identical_embeddings):
@@ -176,7 +205,16 @@ class TestScorerScore:
         """Streamlit / JSON consumers rely on this stable key set."""
         scorer = OrdinanceScorer(two_criteria)
         result = scorer.score(**identical_embeddings)
-        required = {"title", "short", "score", "raw_similarity", "top_excerpts", "top_scores", "weight"}
+        required = {
+            "title",
+            "short",
+            "score",
+            "raw_similarity",
+            "probe_count",
+            "top_excerpts",
+            "top_scores",
+            "weight",
+        }
         for r in result["criteria_results"]:
             assert required.issubset(r.keys()), f"Missing keys in {r}"
 
@@ -187,7 +225,7 @@ class TestScorerScore:
         result = scorer.score(
             doc_chunks=["relevant text"],
             doc_embeddings=[vec],
-            crit_embeddings=[vec, _unit([0.0, 1.0, 0.0])],
+            crit_probe_embeddings=[[vec], [_unit([0.0, 1.0, 0.0])]],
         )
         assert result["criteria_results"][0]["score"] == pytest.approx(100.0, abs=0.01)
 
@@ -199,14 +237,14 @@ class TestScorerScore:
         result = scorer.score(
             doc_chunks=["irrelevant text"],
             doc_embeddings=[doc_vec],
-            crit_embeddings=[crit_vec, doc_vec],
+            crit_probe_embeddings=[[crit_vec], [doc_vec]],
         )
         assert result["criteria_results"][0]["score"] == pytest.approx(0.0, abs=0.01)
 
     def test_score_in_range_zero_to_one_hundred(self):
         """Property test with random *but normalised* embeddings — scores stay bounded."""
         n = 5
-        criteria = [{"title": str(i), "description": "d", "weight": 1.0} for i in range(n)]
+        criteria = [{"title": str(i), "probes": ["d"], "weight": 1.0} for i in range(n)]
         scorer = OrdinanceScorer(criteria)
         rng = np.random.default_rng(7)
         D = rng.standard_normal((10, 16)).astype(float)
@@ -216,7 +254,7 @@ class TestScorerScore:
         result = scorer.score(
             doc_chunks=[f"chunk {i}" for i in range(10)],
             doc_embeddings=D.tolist(),
-            crit_embeddings=C.tolist(),
+            crit_probe_embeddings=[[row] for row in C.tolist()],
         )
         for r in result["criteria_results"]:
             assert 0.0 <= r["score"] <= 100.0
@@ -227,8 +265,8 @@ class TestScorerScore:
         match ``(2/3)*100 + (1/3)*0`` given weights 2 and 1.
         """
         criteria = [
-            {"title": "A", "description": "d", "weight": 2.0},
-            {"title": "B", "description": "d", "weight": 1.0},
+            {"title": "A", "probes": ["d"], "weight": 2.0},
+            {"title": "B", "probes": ["d"], "weight": 1.0},
         ]
         vec_a = _unit([1.0, 0.0])
         vec_b = _unit([0.0, 1.0])
@@ -236,27 +274,27 @@ class TestScorerScore:
         result = scorer.score(
             doc_chunks=["x"],
             doc_embeddings=[vec_a],
-            crit_embeddings=[vec_a, vec_b],
+            crit_probe_embeddings=[[vec_a], [vec_b]],
         )
         expected = (2 / 3) * 100.0 + (1 / 3) * 0.0
         assert result["overall_score"] == pytest.approx(expected, abs=0.1)
 
     def test_top_k_one_returns_single_excerpt(self):
         """Default ``top_k=1`` should surface exactly one supporting chunk string."""
-        criteria = [{"title": "A", "description": "d", "weight": 1.0}]
+        criteria = [{"title": "A", "probes": ["d"], "weight": 1.0}]
         vec = _unit([1.0, 0.0])
         scorer = OrdinanceScorer(criteria)
         result = scorer.score(
             doc_chunks=["chunk one", "chunk two", "chunk three"],
             doc_embeddings=[vec, vec, vec],
-            crit_embeddings=[vec],
+            crit_probe_embeddings=[[vec]],
             top_k=1,
         )
         assert len(result["criteria_results"][0]["top_excerpts"]) == 1
 
     def test_top_k_three_returns_three_excerpts(self):
         """With five random chunks, ``top_k=3`` should return three distinct excerpts."""
-        criteria = [{"title": "A", "description": "d", "weight": 1.0}]
+        criteria = [{"title": "A", "probes": ["d"], "weight": 1.0}]
         rng = np.random.default_rng(0)
         D = rng.standard_normal((5, 4)).astype(float)
         D /= np.linalg.norm(D, axis=1, keepdims=True)
@@ -266,14 +304,14 @@ class TestScorerScore:
         result = scorer.score(
             doc_chunks=[f"chunk {i}" for i in range(5)],
             doc_embeddings=D.tolist(),
-            crit_embeddings=C.tolist(),
+            crit_probe_embeddings=[[C[0].tolist()]],
             top_k=3,
         )
         assert len(result["criteria_results"][0]["top_excerpts"]) == 3
 
     def test_raw_similarity_matches_max_cosine_similarity(self):
-        """``raw_similarity`` must equal the max over per-chunk cosine similarities."""
-        criteria = [{"title": "A", "description": "d", "weight": 1.0}]
+        """With a single probe, ``raw_similarity`` equals the max chunk–probe cosine."""
+        criteria = [{"title": "A", "probes": ["d"], "weight": 1.0}]
         vec_a = _unit([1.0, 0.0, 0.0])
         vec_b = _unit([0.0, 1.0, 0.0])
         vec_c = _unit([1.0, 0.0, 0.0])
@@ -281,9 +319,29 @@ class TestScorerScore:
         result = scorer.score(
             doc_chunks=["a", "b", "c"],
             doc_embeddings=[vec_a, vec_b, vec_c],
-            crit_embeddings=[vec_a],
+            crit_probe_embeddings=[[vec_a]],
         )
         assert result["criteria_results"][0]["raw_similarity"] == pytest.approx(1.0, abs=1e-6)
+
+    def test_multi_probe_criterion_score_is_mean_of_probe_line_scores(self):
+        """
+        Two probes: first matches the document chunk, second is orthogonal.
+        Criterion score should be (100 + 0) / 2 = 50; raw_similarity mean of max cosines.
+        """
+        criteria = [{"title": "A", "probes": ["d"], "weight": 1.0}]
+        doc_vec = _unit([1.0, 0.0, 0.0])
+        p0 = _unit([1.0, 0.0, 0.0])
+        p1 = _unit([0.0, 1.0, 0.0])
+        scorer = OrdinanceScorer(criteria)
+        result = scorer.score(
+            doc_chunks=["only chunk"],
+            doc_embeddings=[doc_vec],
+            crit_probe_embeddings=[[p0, p1]],
+        )
+        row = result["criteria_results"][0]
+        assert row["probe_count"] == 2
+        assert row["score"] == pytest.approx(50.0, abs=0.1)
+        assert row["raw_similarity"] == pytest.approx(0.5, abs=1e-6)
 
 
 # ---------------------------------------------------------------------------

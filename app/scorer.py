@@ -4,18 +4,19 @@ Semantic scoring for ordinance text against weighted criteria.
 This module ties together:
 
 * **Embeddings** — local Sentence-Transformers models (cached per model name).
-* **Scoring** — per-criterion max cosine similarity between criterion vectors
-  and document-chunk vectors, mapped to 0–100 and combined with normalized
-  weights.
+* **Scoring** — per-criterion, each **probe** (short rubric phrase; falls back to
+  ``title`` only if ``probes`` is missing or empty) gets max cosine similarity to document
+  chunks; probe scores are averaged (mapped 0–100 per probe, then mean). Chunks
+  are ranked for evidence by max similarity over probes at that chunk.
 
 **Mathematical sketch**
 
-For each criterion :math:`c` with unit-normalized embedding :math:`\\mathbf{c}`
-and document chunks with embeddings :math:`\\mathbf{d}_i`, we compute cosine
-similarities :math:`s_i = \\cos(\\mathbf{c}, \\mathbf{d}_i)`. The criterion score
-is :math:`100 \\times \\max(0, \\max_i s_i)` (negative similarity treated as 0).
-The **overall score** is the weighted average of criterion scores using weights
-from JSON, renormalized to sum to 1.
+For each criterion, let probe vectors be :math:`\\mathbf{p}_j` (unit-normalized)
+and chunk vectors :math:`\\mathbf{d}_i`. For each probe :math:`j`, define
+:math:`m_j = \\max_i \\cos(\\mathbf{p}_j, \\mathbf{d}_i)`. The criterion score is
+the mean of :math:`100 \\times \\max(0, m_j)` over probes (one probe ⇒ same as
+the legacy single-vector max). The **overall score** is the weighted average of
+criterion scores using renormalized ``weight`` values.
 
 **Typical usage**
 
@@ -23,11 +24,11 @@ from JSON, renormalized to sum to 1.
 
     scorer = OrdinanceScorer(criteria, model_name="all-MiniLM-L6-v2")
     doc_embs = scorer.embed_texts(chunks)
-    crit_embs = scorer.embed_texts([c["description"] for c in criteria])
+    crit_probe_embs = scorer.embed_criteria_probes()
     result = scorer.score(
         doc_chunks=chunks,
         doc_embeddings=doc_embs,
-        crit_embeddings=crit_embs,
+        crit_probe_embeddings=crit_probe_embs,
         top_k=2,
     )
 
@@ -45,7 +46,61 @@ from typing import Any, Dict, List
 import numpy as np
 
 from app.defaults import DEFAULT_SENTENCE_TRANSFORMER_MODEL
-from app.utils import cosine_similarities_array, similarity_to_score
+from app.utils import similarity_to_score
+
+
+def criterion_probe_texts(criterion: Dict[str, Any]) -> List[str]:
+    """
+    Return the list of embeddable probe strings for one rubric row.
+
+    Uses ``criterion["probes"]`` when it is a non-empty list of strings (after
+    stripping empties). If there are no usable probes, falls back to a single
+    embedding of the criterion ``title`` so a malformed row still runs.
+    """
+    probes = criterion.get("probes")
+    if isinstance(probes, list) and len(probes) > 0:
+        out = [str(p).strip() for p in probes if str(p).strip()]
+        if out:
+            return out
+    title = (criterion.get("title") or "criterion").strip()
+    return [title if title else "criterion"]
+
+
+def criterion_short_preview(criterion: Dict[str, Any], max_len: int = 200) -> str:
+    """Compact line for APIs: explicit ``short``, else truncated joined probes."""
+    s = criterion.get("short")
+    if isinstance(s, str) and s.strip():
+        return s.strip()[:max_len]
+    parts = criterion_probe_texts(criterion)
+    joined = "; ".join(parts)
+    return joined[:max_len] if len(joined) <= max_len else joined[: max_len - 1] + "…"
+
+
+def criterion_probe_counts(criteria: List[Dict[str, Any]]) -> List[int]:
+    """Number of probes per criterion, aligned with ``criteria`` order."""
+    return [len(criterion_probe_texts(c)) for c in criteria]
+
+
+def unpack_probe_embeddings(
+    flat_embeddings: List[List[float]],
+    probe_counts: List[int],
+) -> List[List[List[float]]]:
+    """
+    Split a single batched embedding list into per-criterion probe groups.
+
+    ``sum(probe_counts)`` must equal ``len(flat_embeddings)``.
+    """
+    out: List[List[List[float]]] = []
+    i = 0
+    for n in probe_counts:
+        out.append(flat_embeddings[i : i + n])
+        i += n
+    if i != len(flat_embeddings):
+        raise ValueError(
+            "flat_embeddings length does not match sum(probe_counts): "
+            f"{len(flat_embeddings)} vs consumed {i}"
+        )
+    return out
 
 
 @lru_cache(maxsize=4)
@@ -85,16 +140,20 @@ class OrdinanceScorer:
     Each criterion is a ``dict`` with:
 
     * ``title`` — short label for UI / reports.
-    * ``description`` — prose the model embeds (the semantic "probe" for the rubric).
-    * ``weight`` — optional relative importance (defaults to ``1.0`` if omitted).
-    * ``short`` — optional one-line summary for tables; falls back to a trimmed
-      ``description``.
+    * ``probes`` — list of short strings; each is embedded separately and the
+      criterion score is the **mean** of per-probe max-similarity scores (0–100).
+      If missing or empty, ``title`` is embedded as a single probe.
+    * ``short`` — optional trimmed line for compact tables; otherwise derived from
+      joined probes.
+    * ``weight`` — optional relative importance (defaults to ``1.0`` if omitted);
+      values renormalize **globally** across all criteria for the overall score.
+    * ``pillar`` — optional grouping label for UIs (ignored by scoring math).
 
     **Overall score**
 
     Per-criterion scores live on a 0–100 scale. The overall score is
-    :math:`\\sum_k w_k \\, \\text{score}_k` where ``w_k`` comes from JSON weights
-    divided by their sum (so weights behave like a convex combination).
+    :math:`\\sum_k w_k \\, \\text{score}_k` where ``w_k`` is each criterion's
+    ``weight`` renormalized so the weights sum to 1.
 
     **Lazy model loading**
 
@@ -178,29 +237,47 @@ class OrdinanceScorer:
         )
         return [e.tolist() for e in embs]
 
+    def embed_criteria_probes(self) -> List[List[List[float]]]:
+        """
+        Embed all criterion probes in one batch, grouped per rubric row.
+
+        Returns:
+            List aligned with ``self.criteria``; each element is a non-empty list
+            of probe embedding vectors (each vector is a ``list[float]``).
+        """
+        texts: List[str] = []
+        for c in self.criteria:
+            texts.extend(criterion_probe_texts(c))
+        flat = self.embed_texts(texts)
+        counts = criterion_probe_counts(self.criteria)
+        return unpack_probe_embeddings(flat, counts)
+
     def score(
         self,
         doc_chunks: List[str],
         doc_embeddings: List[List[float]],
-        crit_embeddings: List[List[float]],
+        crit_probe_embeddings: List[List[List[float]]],
         top_k: int = 1,
     ) -> Dict[str, Any]:
         """
-        Score pre-embedded document chunks against pre-embedded criteria.
+        Score pre-embedded document chunks against pre-embedded criterion probes.
 
         **Per criterion**
 
-        1. Take embedding row ``C[idx]`` for that criterion.
-        2. Compute cosine similarity against every document row in ``D``.
-        3. Record ``raw_similarity = max(sims)`` and map it to ``score`` via
-           :func:`~app.utils.similarity_to_score`.
-        4. Sort chunk indices descending by similarity; keep the top ``top_k``
-           for human review (excerpts + parallel ``top_scores`` list).
+        1. Stack probe embeddings ``P`` (shape ``n_probes × dim``), document ``D``
+           (``n_chunks × dim``). With L2-normalized rows, ``S = D @ P.T`` holds
+           cosine similarities ``S[i, j]``.
+        2. Per probe ``j``, ``m_j = max_i S[i, j]``. Criterion ``score`` is the
+           mean of :func:`~app.utils.similarity_to_score` applied to each ``m_j``.
+        3. Per chunk ``i``, ``aggregate_i = max_j S[i, j]`` ranks evidence excerpts
+           (best chunk for *any* probe).
+        4. ``raw_similarity`` is the mean of ``m_j`` (average best cosine per probe).
 
         **Args:**
             doc_chunks: Plain-text segments aligned index-wise with ``doc_embeddings``.
             doc_embeddings: Shape ``(num_chunks, dim)`` as nested lists.
-            crit_embeddings: Shape ``(num_criteria, dim)``, same order as ``self.criteria``.
+            crit_probe_embeddings: Same length as ``self.criteria``; each entry is a
+                non-empty list of probe vectors for that criterion.
             top_k: Number of evidence snippets to retain per criterion (>= 1).
 
         **Returns:**
@@ -208,47 +285,54 @@ class OrdinanceScorer:
 
             * ``overall_score`` — float in ``[0, 100]`` (weighted mean).
             * ``criteria_results`` — list of dicts with keys including ``title``,
-              ``short``, ``score``, ``raw_similarity``, ``top_excerpts``,
-              ``top_scores``, ``weight``.
+              ``short``, ``score``, ``raw_similarity``, ``probe_count``,
+              ``top_excerpts``, ``top_scores``, ``weight``, and ``pillar`` when the
+              rubric defines it.
 
         **Preconditions:**
 
         ``len(doc_chunks) == len(doc_embeddings)`` and
-        ``len(crit_embeddings) == len(self.criteria)`` should hold; the code does
-        not assert this explicitly for performance, but violations will yield
+        ``len(crit_probe_embeddings) == len(self.criteria)`` should hold; the code
+        does not assert this explicitly for performance, but violations will yield
         incorrect indexing or shape errors inside NumPy.
         """
-        # Shape (n_chunks, dim) and (n_crit, dim) for vectorized dot products.
-        D = np.array(doc_embeddings)
-        C = np.array(crit_embeddings)
+        D = np.array(doc_embeddings, dtype=float)
 
         criteria_results: List[Dict[str, Any]] = []
         per_scores: List[float] = []
 
         for idx, crit in enumerate(self.criteria):
-            c_emb = C[idx]
-            sims = cosine_similarities_array(c_emb, D)
+            probes = crit_probe_embeddings[idx]
+            if not probes:
+                raise ValueError(f"criterion {idx} has no probe embeddings")
+            P = np.array(probes, dtype=float)
+            # Cosine similarity matrix: chunks × probes (rows unit-normalized).
+            sims = D @ P.T
+            per_probe_max = np.max(sims, axis=0)
+            chunk_aggregate = np.max(sims, axis=1)
 
-            # argsort ascending → reverse for descending similarity order.
-            top_idx = sims.argsort()[::-1][:top_k]
+            top_idx = chunk_aggregate.argsort()[::-1][:top_k]
             top_excerpts = [doc_chunks[i] for i in top_idx]
-            top_scores = sims[top_idx].tolist()
+            top_scores = chunk_aggregate[top_idx].tolist()
 
-            best_sim = float(np.max(sims)) if len(sims) > 0 else 0.0
-            score = similarity_to_score(best_sim)
+            probe_scores = [similarity_to_score(float(x)) for x in per_probe_max]
+            score = float(sum(probe_scores) / len(probe_scores))
+            raw_sim = float(np.mean(per_probe_max))
             per_scores.append(score)
 
-            criteria_results.append(
-                {
-                    "title": crit.get("title", f"Criterion {idx+1}"),
-                    "short": crit.get("short", crit.get("description", "")[:200]),
-                    "score": score,
-                    "raw_similarity": best_sim,
-                    "top_excerpts": top_excerpts,
-                    "top_scores": top_scores,
-                    "weight": crit.get("weight", 1.0),
-                }
-            )
+            row: Dict[str, Any] = {
+                "title": crit.get("title", f"Criterion {idx+1}"),
+                "short": criterion_short_preview(crit),
+                "score": score,
+                "raw_similarity": raw_sim,
+                "probe_count": len(probes),
+                "top_excerpts": top_excerpts,
+                "top_scores": top_scores,
+                "weight": crit.get("weight", 1.0),
+            }
+            if "pillar" in crit and crit["pillar"] is not None:
+                row["pillar"] = crit["pillar"]
+            criteria_results.append(row)
 
         overall = 0.0
         for w, s in zip(self.weights, per_scores):

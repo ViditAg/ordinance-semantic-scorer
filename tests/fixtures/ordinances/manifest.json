@@ -1,31 +1,31 @@
 {
   "version": 1,
-  "description": "Expected ordinance PDFs under sample/ordinances/ (paths relative to repo root). Tests skip missing files. Tune benchmark_min_overall_score after you lock a rubric + model for regression runs.",
+  "description": "Ordinance PDF paths relative to repo root. Committed samples live under sample/ (see filenames below). Copy into sample/ordinances/ if you prefer that layout and update paths. Tests skip missing files. Tune benchmark_min_overall_score after you lock a rubric + model for regression runs.",
   "documents": [
     {
       "id": "flagstaff",
-      "path": "sample/ordinances/flagstaff.pdf",
+      "path": "sample/Flagstaff.pdf",
       "min_chars": 4000,
       "keywords": ["lighting", "outdoor", "shield"],
       "benchmark_min_overall_score": 45.0
     },
     {
       "id": "sisters",
-      "path": "sample/ordinances/sisters.pdf",
+      "path": "sample/Sisters.pdf",
       "min_chars": 4000,
       "keywords": ["lighting", "dark", "outdoor"],
       "benchmark_min_overall_score": 45.0
     },
     {
       "id": "bend",
-      "path": "sample/ordinances/bend.pdf",
+      "path": "sample/Bend.pdf",
       "min_chars": 3000,
       "keywords": ["lighting", "bend"],
       "benchmark_min_overall_score": 30.0
     },
     {
       "id": "deschutes_county",
-      "path": "sample/ordinances/deschutes_county.pdf",
+      "path": "sample/Deschutes.pdf",
       "min_chars": 3000,
       "keywords": ["lighting", "outdoor"],
       "benchmark_min_overall_score": 25.0

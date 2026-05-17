@@ -63,7 +63,7 @@ class TestCompositeRankScore:
 
 class TestRunChunkSweep:
     def test_mocked_scorer_runs_each_pair(self):
-        criteria = [{"title": "A", "description": "d", "weight": 1.0}]
+        criteria = [{"title": "A", "probes": ["d"], "weight": 1.0}]
 
         mock_scorer = MagicMock()
         mock_scorer.embed_texts.side_effect = lambda texts: [[0.0, 1.0]] * len(texts)
@@ -83,6 +83,9 @@ class TestRunChunkSweep:
             )
 
         assert len(rows) == 2
-        assert mock_scorer.embed_texts.call_count >= 3
+        # ``MagicMock`` does not run real ``embed_criteria_probes`` (which would
+        # call ``embed_texts`` once for probes); only the per-pair chunk paths hit
+        # ``embed_texts``.
+        assert mock_scorer.embed_texts.call_count == 2
         assert all("neighbor_score_stdev" in r for r in rows)
         assert rows[0]["overall_score"] == 42.5

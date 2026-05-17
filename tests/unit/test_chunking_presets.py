@@ -1,43 +1,39 @@
-"""Tests for ``app.chunking_presets``."""
+"""Calibration grid defaults stay small enough for ``scripts/calibrate.py --max-pairs``."""
+
 from __future__ import annotations
 
-import pytest
-
 from app.chunking_presets import (
-    DEFAULT_CHUNK_OVERLAP,
-    DEFAULT_CHUNK_SIZE,
-    describe_preset,
-    preset_label,
-    resolve_chunking,
+    SWEEP_CHUNK_SIZE_MAX_DEFAULT,
+    SWEEP_CHUNK_SIZE_MIN_DEFAULT,
+    SWEEP_CHUNK_SIZE_STEP_DEFAULT,
+    SWEEP_OVERLAP_MAX_DEFAULT,
+    SWEEP_OVERLAP_MIN_DEFAULT,
+    SWEEP_OVERLAP_STEP_DEFAULT,
 )
+from app.stability import valid_chunk_pairs
 
 
-def test_balanced_matches_module_defaults():
-    cs, ov = resolve_chunking("balanced", 9999, 9999)
-    assert cs == DEFAULT_CHUNK_SIZE
-    assert ov == DEFAULT_CHUNK_OVERLAP
+def test_default_sweep_fits_calibrate_max_pairs_budget():
+    sizes = list(
+        range(
+            SWEEP_CHUNK_SIZE_MIN_DEFAULT,
+            SWEEP_CHUNK_SIZE_MAX_DEFAULT + 1,
+            SWEEP_CHUNK_SIZE_STEP_DEFAULT,
+        )
+    )
+    overlaps = list(
+        range(
+            SWEEP_OVERLAP_MIN_DEFAULT,
+            SWEEP_OVERLAP_MAX_DEFAULT + 1,
+            SWEEP_OVERLAP_STEP_DEFAULT,
+        )
+    )
+    pairs = valid_chunk_pairs(sizes, overlaps)
+    assert pairs, "expected non-empty sweep grid"
+    assert len(pairs) <= 72, (
+        f"default grid has {len(pairs)} pairs; raise calibrate --max-pairs "
+        "or shrink SWEEP_* presets"
+    )
 
-
-def test_custom_uses_arguments():
-    assert resolve_chunking("custom", 1800, 120) == (1800, 120)
-
-
-def test_fine_and_coarse_are_ordered_sizes():
-    fine_cs, _ = resolve_chunking("fine", 0, 0)
-    bal_cs, _ = resolve_chunking("balanced", 0, 0)
-    coarse_cs, _ = resolve_chunking("coarse", 0, 0)
-    assert fine_cs < bal_cs < coarse_cs
-
-
-def test_preset_label_custom():
-    assert "Custom" in preset_label("custom")
-
-
-def test_describe_nonempty():
-    for key in ("balanced", "fine", "coarse", "custom"):
-        assert len(describe_preset(key)) > 5
-
-
-def test_unknown_preset_key_raises():
-    with pytest.raises(KeyError):
-        resolve_chunking("nonexistent", 1000, 100)
+def test_smallest_chunk_exceeds_largest_overlap():
+    assert SWEEP_OVERLAP_MAX_DEFAULT < SWEEP_CHUNK_SIZE_MIN_DEFAULT

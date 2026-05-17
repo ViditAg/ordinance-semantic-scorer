@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from app.chunking_presets import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE
 
-DEFAULT_SENTENCE_TRANSFORMER_MODEL = "all-MiniLM-L6-v2"
+DEFAULT_SENTENCE_TRANSFORMER_MODEL = "sentence-transformers/all-mpnet-base-v2"
 
 __all__ = [
     "DEFAULT_CHUNK_OVERLAP",

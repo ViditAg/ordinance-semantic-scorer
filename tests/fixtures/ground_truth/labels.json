@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "description": "Human-curated spot checks for corpus integrity and future retrieval evaluation. Each label references a manifest document id and a criterion serial_number from app/criteria.json. must_contain_substrings: case-insensitive; every string must appear in the PDF extract for the label to remain valid.",
+  "labels": [
+    {
+      "document_id": "flagstaff",
+      "criterion_serial_number": 3,
+      "support": "supported",
+      "must_contain_substrings": ["lighting", "outdoor", "shield"],
+      "notes": "Shielding / outdoor lighting topic appears in City of Flagstaff text layer."
+    },
+    {
+      "document_id": "bend",
+      "criterion_serial_number": 2,
+      "support": "supported",
+      "must_contain_substrings": ["lighting", "bend"],
+      "notes": "City of Bend extract should mention lighting and the jurisdiction name."
+    },
+    {
+      "document_id": "sisters",
+      "criterion_serial_number": 1,
+      "support": "supported",
+      "must_contain_substrings": ["lighting", "dark"],
+      "notes": "Purpose / dark skies themes in Sisters ordinance extract."
+    },
+    {
+      "document_id": "deschutes_county",
+      "criterion_serial_number": 3,
+      "support": "supported",
+      "must_contain_substrings": ["lighting", "outdoor"],
+      "notes": "County extract should cover outdoor lighting controls."
+    }
+  ]
+}

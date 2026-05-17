@@ -1,0 +1,26 @@
+{
+  "timestamp": "2026-05-12T05:18:34.213834Z",
+  "model_name": "sentence-transformers/all-mpnet-base-v2",
+  "criteria_path": "app/criteria.json",
+  "pdf": "sample/Flagstaff.pdf",
+  "text_file": null,
+  "chunk_sizes": [
+    1500,
+    2000,
+    2500,
+    3000
+  ],
+  "overlaps": [
+    100,
+    150,
+    200,
+    250,
+    300,
+    350,
+    400
+  ],
+  "num_pairs": 28,
+  "stability_weight": 1.0,
+  "top_k": 1,
+  "chars_in_document": 23311
+}

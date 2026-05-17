@@ -13,7 +13,7 @@ from app.domain.models import ScoringRequest
 
 
 def _minimal_criteria():
-    return [{"title": "t", "description": "d", "weight": 1.0}]
+    return [{"title": "t", "probes": ["d"], "weight": 1.0}]
 
 
 def test_score_chunks_empty_raises():
@@ -31,8 +31,8 @@ def test_score_chunks_delegates_to_scorer(mock_scorer_cls):
     mock_scorer = MagicMock()
     mock_scorer.embed_texts.side_effect = [
         [[1.0, 0.0]],
-        [[0.0, 1.0]],
     ]
+    mock_scorer.embed_criteria_probes.return_value = [[[0.0, 1.0]]]
     mock_scorer.score.return_value = {"overall_score": 50.0, "criteria_results": []}
     mock_scorer_cls.return_value = mock_scorer
 
@@ -45,7 +45,8 @@ def test_score_chunks_delegates_to_scorer(mock_scorer_cls):
 
     assert out.chunks == ["hello"]
     assert out.score_payload["overall_score"] == 50.0
-    assert mock_scorer.embed_texts.call_count == 2
+    assert mock_scorer.embed_texts.call_count == 1
+    mock_scorer.embed_criteria_probes.assert_called_once()
     mock_scorer.score.assert_called_once()
 
 
@@ -54,8 +55,8 @@ def test_score_document_loads_and_chunks(mock_scorer_cls):
     mock_scorer = MagicMock()
     mock_scorer.embed_texts.side_effect = [
         [[1.0, 0.0], [0.0, 1.0]],
-        [[0.0, 1.0]],
     ]
+    mock_scorer.embed_criteria_probes.return_value = [[[0.0, 1.0]]]
     mock_scorer.score.return_value = {"overall_score": 10.0, "criteria_results": []}
     mock_scorer_cls.return_value = mock_scorer
 

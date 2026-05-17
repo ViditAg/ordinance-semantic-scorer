@@ -28,6 +28,8 @@ from typing import BinaryIO, List, Sequence, Union
 
 import numpy as np
 
+from app.chunking_presets import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE
+
 Vector = Sequence[float]
 Matrix = Union[Sequence[Sequence[float]], np.ndarray]
 
@@ -76,8 +78,8 @@ def extract_text_from_pdf(file_obj: BinaryIO) -> str:
 
 def chunk_text(
     text: str,
-    chunk_size: int = 2000,
-    overlap: int = 200,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    overlap: int = DEFAULT_CHUNK_OVERLAP,
 ) -> List[str]:
     """
     Split *text* into overlapping character windows suitable for embedding.
@@ -85,7 +87,8 @@ def chunk_text(
     **Why character-based chunking?**
 
     Tokenizers differ per model; counting characters is simple, predictable, and
-    matches how operators think about "about 2000 characters per chunk" in the UI.
+    matches how operators think about "about N characters per chunk" in the UI
+    (defaults follow :mod:`app.chunking_presets`).
     Overlap means the tail of chunk *N* reappears at the start of chunk *N+1*, so
     a clause split across a boundary still appears in full in at least one chunk.
 

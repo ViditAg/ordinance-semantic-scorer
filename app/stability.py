@@ -3,7 +3,7 @@ Chunk hyperparameter sweep for semantic-score stability analysis.
 
 Given fixed criteria and embedding model, varies ``chunk_size`` and ``overlap``,
 re-chunks the same document text, re-embeds chunks, and scores each setting.
-Criterion embeddings are computed once per sweep (they do not depend on chunking).
+Criterion **probe** embeddings are computed once per sweep (they do not depend on chunking).
 
 Used by ``scripts/calibrate.py`` (local HTML/CSV benchmarking) and importable for
 custom notebooks. Helps find settings that balance high scores against local
@@ -127,8 +127,7 @@ def run_chunk_sweep(
     pairs = valid_chunk_pairs(chunk_sizes, overlaps)
     total = len(pairs)
     scorer = OrdinanceScorer(criteria=criteria, model_name=model_name)
-    crit_texts = [c["description"] for c in criteria]
-    crit_embeddings = scorer.embed_texts(crit_texts)
+    crit_probe_embeddings = scorer.embed_criteria_probes()
 
     rows: List[Dict[str, Any]] = []
     for i, (cs, ov) in enumerate(pairs):
@@ -151,7 +150,7 @@ def run_chunk_sweep(
         results = scorer.score(
             doc_chunks=chunks,
             doc_embeddings=doc_embeddings,
-            crit_embeddings=crit_embeddings,
+            crit_probe_embeddings=crit_probe_embeddings,
             top_k=top_k,
         )
         per = [float(r["score"]) for r in results["criteria_results"]]

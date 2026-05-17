@@ -55,12 +55,11 @@ class OrdinanceScoringService:
             raise ValueError("no chunks to score")
 
         doc_embeddings = self._scorer.embed_texts(chunks)
-        crit_texts = [c["description"] for c in self._criteria]
-        crit_embeddings = self._scorer.embed_texts(crit_texts)
+        crit_probe_embeddings = self._scorer.embed_criteria_probes()
         payload: Dict[str, Any] = self._scorer.score(
             doc_chunks=chunks,
             doc_embeddings=doc_embeddings,
-            crit_embeddings=crit_embeddings,
+            crit_probe_embeddings=crit_probe_embeddings,
             top_k=request.top_k,
         )
         return ScoringResult(chunks=chunks, score_payload=payload)
